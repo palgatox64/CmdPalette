@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "commandly",
+  "version": "${version}",
+
+  "name": "Commandly",
+  "description": "A high-efficiency command palette for Minecraft. Streamlines command execution and navigation through a responsive fuzzy-search interface.",
+  "authors": [],
+  "contact": {},
+
+  "license": "All-Rights-Reserved",
+  "icon": "assets/commandly/icon.png",
+
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": ["me.palgato.commandly.client.CommandlyDataGenerator"],
+    "client": ["me.palgato.commandly.client.CommandlyClient"],
+    "main": ["me.palgato.commandly.Commandly"]
+  },
+
+  "mixins": [
+    "commandly.mixins.json"
+    ,{
+      "config": "commandly.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
