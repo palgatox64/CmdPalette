@@ -9,6 +9,7 @@ import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.input.CharInput;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.client.network.ClientCommandSource;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
@@ -37,8 +38,10 @@ public class CommandPaletteScreen extends Screen {
     private static final int STAR_BUTTON_SIZE = 20;
     private static final int STAR_GAP = 4;
     private static final int STAR_ROW_SIZE = 12;
-    private static final int TAB_BUTTON_WIDTH = 86;
+    private static final int TAB_BUTTON_WIDTH = 72;
     private static final int TAB_GAP = 4;
+    private static final int CATEGORY_TAB_MIN_WIDTH = 64;
+    private static final int CATEGORY_TAB_MAX_WIDTH = 120;
     private static final int MAX_HISTORY_ENTRIES = 100;
 
     private static final int COLOR_OVERLAY = 0xB0000000;
@@ -55,6 +58,7 @@ public class CommandPaletteScreen extends Screen {
     private static final int COLOR_STAR_OFF = 0xFF808080;
     private static final int COLOR_BUTTON_BG = 0xFF2A2A2A;
     private static final int COLOR_BUTTON_ACTIVE = 0xFF3B3B3B;
+    private static final int COLOR_CATEGORY_ACTIVE = 0xFF4A3F2A;
 
     private static final int COLOR_SLASH = 0xFF888888;
     private static final int COLOR_COMMAND = 0xFF5AF5E2;
@@ -74,11 +78,15 @@ public class CommandPaletteScreen extends Screen {
     };
 
     private TextFieldWidget inputField;
+    private TextFieldWidget categoryInputField;
     private final List<String> suggestions = new CopyOnWriteArrayList<>();
-    private final List<String> favorites = new CopyOnWriteArrayList<>();
+    private final List<CommandCategoriesStore.Category> categories = new CopyOnWriteArrayList<>();
     private final List<String> history = new CopyOnWriteArrayList<>();
     private int selectedIndex = -1;
     private int scrollOffset = 0;
+    private int selectedCategoryIndex = -1;
+    private int categoryScrollIndex = 0;
+    private boolean creatingCategoryInput = false;
     private ViewMode currentView = ViewMode.COMMANDS;
 
     private String cachedColorText = "";
@@ -86,7 +94,7 @@ public class CommandPaletteScreen extends Screen {
 
     private enum ViewMode {
         COMMANDS,
-        FAVORITES,
+        CATEGORY,
         HISTORY
     }
 
@@ -114,14 +122,57 @@ public class CommandPaletteScreen extends Screen {
         inputField.setChangedListener(this::onInputChanged);
         inputField.addFormatter(this::formatInputText);
 
+        categoryInputField = new TextFieldWidget(
+            this.textRenderer,
+            getCategoryInputX(),
+            getCategoryInputY(),
+            getCategoryInputWidth(),
+            NAVBAR_HEIGHT,
+            Text.empty()
+        );
+        categoryInputField.setMaxLength(24);
+        categoryInputField.setDrawsBackground(true);
+        categoryInputField.setEditableColor(0xFFC5C8C6);
+        categoryInputField.setVisible(false);
+
         addDrawableChild(inputField);
+        addDrawableChild(categoryInputField);
         setInitialFocus(inputField);
 
-        favorites.clear();
-        favorites.addAll(FavoriteCommandsStore.load());
+        categories.clear();
+        categories.addAll(CommandCategoriesStore.load());
+        ensureDefaultCategory();
         history.clear();
         history.addAll(CommandHistoryStore.load());
         refreshSuggestions("");
+    }
+
+    private void ensureDefaultCategory() {
+        boolean changed = false;
+
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        if (favoritesIndex < 0) {
+            categories.add(0, new CommandCategoriesStore.Category(CommandCategoriesStore.DEFAULT_CATEGORY_NAME, new ArrayList<>()));
+            changed = true;
+            if (selectedCategoryIndex >= 0) {
+                selectedCategoryIndex++;
+            }
+        }
+
+        if (categories.isEmpty()) {
+            categories.add(new CommandCategoriesStore.Category(CommandCategoriesStore.DEFAULT_CATEGORY_NAME, new ArrayList<>()));
+            changed = true;
+        }
+
+        if (changed) {
+            CommandCategoriesStore.save(categories);
+        }
+
+        if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) {
+            selectedCategoryIndex = 0;
+        }
+        clampCategoryScrollIndex();
+        ensureCategoryTabVisible(selectedCategoryIndex);
     }
 
     private OrderedText formatInputText(String text, int firstCharIndex) {
@@ -197,10 +248,17 @@ public class CommandPaletteScreen extends Screen {
 
     private List<String> getVisibleEntries() {
         return switch (currentView) {
-            case FAVORITES -> favorites;
+            case CATEGORY -> getSelectedCategoryCommands();
             case HISTORY -> history;
             default -> suggestions;
         };
+    }
+
+    private List<String> getSelectedCategoryCommands() {
+        if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) {
+            return List.of();
+        }
+        return categories.get(selectedCategoryIndex).commands();
     }
 
     private int getInputX() {
@@ -218,15 +276,39 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getInputWidth() {
-        return PALETTE_WIDTH - PADDING * 2 - STAR_BUTTON_SIZE - STAR_GAP;
-    }
-
-    private int getFavoritesTabX() {
-        return getInputX();
+        return PALETTE_WIDTH - PADDING * 2 - STAR_BUTTON_SIZE * 2 - STAR_GAP * 2;
     }
 
     private int getHistoryTabX() {
-        return getFavoritesTabX() + TAB_BUTTON_WIDTH + TAB_GAP;
+        return getInputX();
+    }
+
+    private int getFavoritesTabX() {
+        return getHistoryTabX() + TAB_BUTTON_WIDTH + TAB_GAP;
+    }
+
+    private int getFavoritesTabWidth() {
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        if (favoritesIndex < 0 || favoritesIndex >= categories.size()) {
+            return 0;
+        }
+        return getCategoryTabWidth(categories.get(favoritesIndex));
+    }
+
+    private int getCreateCategoryTabX() {
+        int favoritesWidth = getFavoritesTabWidth();
+        if (favoritesWidth > 0) {
+            return getFavoritesTabX() + favoritesWidth + TAB_GAP;
+        }
+        return getHistoryTabX() + TAB_BUTTON_WIDTH + TAB_GAP;
+    }
+
+    private int getCategoryScrollLeftX() {
+        return getCreateCategoryTabX() + NAVBAR_HEIGHT + TAB_GAP;
+    }
+
+    private int getCategoryTabsStartX() {
+        return getCategoryScrollLeftX() + NAVBAR_HEIGHT + TAB_GAP;
     }
 
     private int getSettingsButtonX() {
@@ -234,8 +316,137 @@ public class CommandPaletteScreen extends Screen {
         return paletteX + PALETTE_WIDTH - PADDING - NAVBAR_HEIGHT;
     }
 
-    private int getAddStarX() {
+    private int getCategoryScrollRightX() {
+        return getSettingsButtonX() - TAB_GAP - NAVBAR_HEIGHT;
+    }
+
+    private int getAddToCategoryButtonX() {
         return getInputX() + getInputWidth() + STAR_GAP;
+    }
+
+    private int getFavoriteButtonX() {
+        return getAddToCategoryButtonX() + STAR_BUTTON_SIZE + STAR_GAP;
+    }
+
+    private int getCategoryInputX() {
+        return getCategoryTabsStartX();
+    }
+
+    private int getCategoryInputY() {
+        return getNavbarY();
+    }
+
+    private int getCategoryInputWidth() {
+        return Math.max(96, getCategoryTabsAreaRightX() - getCategoryInputX());
+    }
+
+    private int getCategoryTabsAreaRightX() {
+        return getCategoryScrollRightX() - TAB_GAP;
+    }
+
+    private List<Integer> getScrollableCategoryIndices() {
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < categories.size(); i++) {
+            if (i != favoritesIndex) {
+                indices.add(i);
+            }
+        }
+        return indices;
+    }
+
+    private boolean canScrollCategoriesLeft() {
+        return categoryScrollIndex > 0;
+    }
+
+    private boolean canScrollCategoriesRight() {
+        if (categories.isEmpty()) {
+            return false;
+        }
+        int visibleCount = getVisibleCategoryCountFrom(categoryScrollIndex);
+        return categoryScrollIndex + visibleCount < categories.size();
+    }
+
+    private int getCategoryTabWidth(CommandCategoriesStore.Category category) {
+        String label = getCategoryDisplayName(category);
+        return Math.max(CATEGORY_TAB_MIN_WIDTH,
+                Math.min(CATEGORY_TAB_MAX_WIDTH, this.textRenderer.getWidth(label) + 20));
+    }
+
+    private int getVisibleCategoryCountFrom(int startIndex) {
+        List<Integer> scrollableIndices = getScrollableCategoryIndices();
+        if (startIndex < 0 || startIndex >= scrollableIndices.size()) {
+            return 0;
+        }
+
+        int rightX = getCategoryTabsAreaRightX();
+        int x = getCategoryTabsStartX();
+        int count = 0;
+
+        for (int i = startIndex; i < scrollableIndices.size(); i++) {
+            int categoryIndex = scrollableIndices.get(i);
+            int width = getCategoryTabWidth(categories.get(categoryIndex));
+            if (x + width > rightX) {
+                break;
+            }
+            count++;
+            x += width + TAB_GAP;
+        }
+
+        if (count == 0) {
+            return 1;
+        }
+
+        return count;
+    }
+
+    private void clampCategoryScrollIndex() {
+        List<Integer> scrollableIndices = getScrollableCategoryIndices();
+        if (scrollableIndices.isEmpty()) {
+            categoryScrollIndex = 0;
+            return;
+        }
+
+        int maxIndex = scrollableIndices.size() - 1;
+        categoryScrollIndex = Math.max(0, Math.min(categoryScrollIndex, maxIndex));
+    }
+
+    private void ensureCategoryTabVisible(int index) {
+        if (index < 0 || index >= categories.size()) {
+            return;
+        }
+
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        if (index == favoritesIndex) {
+            return;
+        }
+
+        List<Integer> scrollableIndices = getScrollableCategoryIndices();
+        int scrollablePosition = scrollableIndices.indexOf(index);
+        if (scrollablePosition < 0) {
+            return;
+        }
+
+        clampCategoryScrollIndex();
+
+        if (scrollablePosition < categoryScrollIndex) {
+            categoryScrollIndex = scrollablePosition;
+            return;
+        }
+
+        while (categoryScrollIndex < categories.size() - 1) {
+            int visibleCount = getVisibleCategoryCountFrom(categoryScrollIndex);
+            if (visibleCount <= 0) {
+                break;
+            }
+
+            int lastVisibleIndex = categoryScrollIndex + visibleCount - 1;
+            if (scrollablePosition <= lastVisibleIndex) {
+                break;
+            }
+
+            categoryScrollIndex++;
+        }
     }
 
     private int getSeparatorY() {
@@ -249,23 +460,140 @@ public class CommandPaletteScreen extends Screen {
         return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
     }
 
-    private boolean isCurrentInputFavorite() {
+    private boolean isCurrentInputInSelectedCategory() {
         String normalized = normalizeCommand(inputField.getText());
-        return !normalized.isBlank() && favorites.contains(normalized);
+        if (normalized.isBlank()) return false;
+        return getSelectedCategoryCommands().contains(normalized);
     }
 
-    private void toggleCurrentInputFavorite() {
+    private boolean isCurrentInputInFavoritesCategory() {
+        String normalized = normalizeCommand(inputField.getText());
+        if (normalized.isBlank()) return false;
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        if (favoritesIndex < 0) return false;
+        return categories.get(favoritesIndex).commands().contains(normalized);
+    }
+
+    private void toggleCurrentInputCategoryCommand() {
         String normalized = normalizeCommand(inputField.getText());
         if (normalized.isBlank()) return;
 
-        if (favorites.contains(normalized)) {
-            favorites.remove(normalized);
-        } else {
-            favorites.add(normalized);
+        ensureDefaultCategory();
+        if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) {
+            selectedCategoryIndex = 0;
         }
 
-        FavoriteCommandsStore.save(favorites);
+        CommandCategoriesStore.Category current = categories.get(selectedCategoryIndex);
+        List<String> commands = new ArrayList<>(current.commands());
+
+        if (commands.contains(normalized)) {
+            commands.remove(normalized);
+        } else {
+            commands.add(normalized);
+        }
+
+        categories.set(selectedCategoryIndex, new CommandCategoriesStore.Category(current.name(), commands));
+        CommandCategoriesStore.save(categories);
         clampSelectionAndScroll();
+    }
+
+    private void toggleCurrentInputFavoriteCommand() {
+        String normalized = normalizeCommand(inputField.getText());
+        if (normalized.isBlank()) return;
+
+        int favoritesIndex = getFavoritesCategoryIndex(true);
+        CommandCategoriesStore.Category favoritesCategory = categories.get(favoritesIndex);
+        List<String> commands = new ArrayList<>(favoritesCategory.commands());
+
+        if (commands.contains(normalized)) {
+            commands.remove(normalized);
+        } else {
+            commands.add(normalized);
+        }
+
+        categories.set(favoritesIndex, new CommandCategoriesStore.Category(favoritesCategory.name(), commands));
+        CommandCategoriesStore.save(categories);
+        if (isCategoryView() && selectedCategoryIndex == favoritesIndex) {
+            clampSelectionAndScroll();
+        }
+    }
+
+    private int getFavoritesCategoryIndex(boolean createIfMissing) {
+        for (int i = 0; i < categories.size(); i++) {
+            if (isFavoritesCategoryName(categories.get(i).name())) {
+                return i;
+            }
+        }
+
+        if (!createIfMissing) {
+            return -1;
+        }
+
+        categories.add(0, new CommandCategoriesStore.Category(CommandCategoriesStore.DEFAULT_CATEGORY_NAME, new ArrayList<>()));
+        if (selectedCategoryIndex >= 0) {
+            selectedCategoryIndex++;
+        }
+        CommandCategoriesStore.save(categories);
+        return 0;
+    }
+
+    private boolean isFavoritesCategoryName(String name) {
+        if (name == null) return false;
+        return name.equalsIgnoreCase(CommandCategoriesStore.DEFAULT_CATEGORY_NAME)
+                || name.equalsIgnoreCase("Favorites")
+                || name.equalsIgnoreCase("Favoritos");
+    }
+
+    private String getCategoryDisplayName(CommandCategoriesStore.Category category) {
+        if (isFavoritesCategoryName(category.name())) {
+            return Text.translatable("screen.cmdpalette.category.favorites").getString();
+        }
+        return category.name();
+    }
+
+    private void openCategoryCreationInput() {
+        creatingCategoryInput = true;
+        categoryInputField.setText("");
+        categoryInputField.setVisible(true);
+        inputField.setFocused(false);
+        categoryInputField.setFocused(true);
+        setFocused(categoryInputField);
+    }
+
+    private void closeCategoryCreationInput() {
+        creatingCategoryInput = false;
+        categoryInputField.setFocused(false);
+        categoryInputField.setVisible(false);
+        inputField.setFocused(true);
+        setFocused(inputField);
+    }
+
+    private void createCategoryFromDedicatedInput() {
+        String raw = categoryInputField.getText();
+        if (raw == null) return;
+        String name = raw.trim();
+        if (name.isBlank()) return;
+
+        for (int i = 0; i < categories.size(); i++) {
+            if (categories.get(i).name().equalsIgnoreCase(name)) {
+                selectedCategoryIndex = i;
+                setView(ViewMode.CATEGORY);
+                ensureCategoryTabVisible(selectedCategoryIndex);
+                closeCategoryCreationInput();
+                return;
+            }
+        }
+
+        if (name.length() > 24) {
+            name = name.substring(0, 24);
+        }
+
+        categories.add(new CommandCategoriesStore.Category(name, new ArrayList<>()));
+        selectedCategoryIndex = categories.size() - 1;
+        CommandCategoriesStore.save(categories);
+        setView(ViewMode.CATEGORY);
+        ensureCategoryTabVisible(selectedCategoryIndex);
+        closeCategoryCreationInput();
     }
 
     private void setView(ViewMode viewMode) {
@@ -282,14 +610,20 @@ public class CommandPaletteScreen extends Screen {
         setView(viewMode);
     }
 
-    private boolean isFavoritesView() {
-        return currentView == ViewMode.FAVORITES;
+    private boolean isCategoryView() {
+        return currentView == ViewMode.CATEGORY;
     }
 
-    private void removeFavoriteAt(int index) {
-        if (index < 0 || index >= favorites.size()) return;
-        favorites.remove(index);
-        FavoriteCommandsStore.save(favorites);
+    private void removeCategoryCommandAt(int index) {
+        if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) return;
+
+        CommandCategoriesStore.Category current = categories.get(selectedCategoryIndex);
+        if (index < 0 || index >= current.commands().size()) return;
+
+        List<String> commands = new ArrayList<>(current.commands());
+        commands.remove(index);
+        categories.set(selectedCategoryIndex, new CommandCategoriesStore.Category(current.name(), commands));
+        CommandCategoriesStore.save(categories);
         clampSelectionAndScroll();
     }
 
@@ -402,66 +736,148 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(paletteX + 4, paletteY + 4,
             paletteX + PALETTE_WIDTH - 4, inputY + INPUT_HEIGHT + 4, COLOR_INPUT_BG);
 
-        int favoritesTabX = getFavoritesTabX();
         int historyTabX = getHistoryTabX();
+        int favoritesTabX = getFavoritesTabX();
+        int favoritesTabWidth = getFavoritesTabWidth();
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        int createCategoryX = getCreateCategoryTabX();
+        int categoriesStartX = getCategoryTabsStartX();
+        int scrollLeftX = getCategoryScrollLeftX();
+        int scrollRightX = getCategoryScrollRightX();
         int actionX = getSettingsButtonX();
-        int addStarX = getAddStarX();
+        int addCategoryX = getAddToCategoryButtonX();
+        int favoriteButtonX = getFavoriteButtonX();
         boolean isHistoryView = currentView == ViewMode.HISTORY;
+        boolean isCategoryView = isCategoryView();
+        boolean canScrollLeft = canScrollCategoriesLeft();
+        boolean canScrollRight = canScrollCategoriesRight();
 
-        boolean hoverFavoritesTab = mouseX >= favoritesTabX && mouseX < favoritesTabX + TAB_BUTTON_WIDTH
-            && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverHistoryTab = mouseX >= historyTabX && mouseX < historyTabX + TAB_BUTTON_WIDTH
                 && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+        boolean hoverCreateCategory = mouseX >= createCategoryX && mouseX < createCategoryX + NAVBAR_HEIGHT
+                && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+        boolean hoverFavoritesTab = favoritesTabWidth > 0
+            && mouseX >= favoritesTabX && mouseX < favoritesTabX + favoritesTabWidth
+            && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+        boolean hoverScrollLeft = mouseX >= scrollLeftX && mouseX < scrollLeftX + NAVBAR_HEIGHT
+            && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+        boolean hoverScrollRight = mouseX >= scrollRightX && mouseX < scrollRightX + NAVBAR_HEIGHT
+            && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverAction = mouseX >= actionX && mouseX < actionX + NAVBAR_HEIGHT
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
-        boolean hoverAddStar = mouseX >= addStarX && mouseX < addStarX + STAR_BUTTON_SIZE
+        boolean hoverAddCategory = mouseX >= addCategoryX && mouseX < addCategoryX + STAR_BUTTON_SIZE
+            && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
+        boolean hoverFavoriteButton = mouseX >= favoriteButtonX && mouseX < favoriteButtonX + STAR_BUTTON_SIZE
             && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
 
-        int favoritesTabBg = isFavoritesView() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
+        int createCategoryBg = COLOR_BUTTON_BG;
+        int favoritesTabBg = COLOR_BUTTON_BG;
+        int scrollLeftBg = COLOR_BUTTON_BG;
+        int scrollRightBg = COLOR_BUTTON_BG;
         int historyTabBg = currentView == ViewMode.HISTORY ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
         int actionBg = COLOR_BUTTON_BG;
-        int addBg = isCurrentInputFavorite() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
+        int addCategoryBg = isCurrentInputInSelectedCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
+        int favoriteBg = isCurrentInputInFavoritesCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
 
-        if (hoverFavoritesTab) favoritesTabBg = COLOR_ACCENT;
         if (hoverHistoryTab) historyTabBg = COLOR_ACCENT;
+        if (favoritesTabWidth > 0 && isCategoryView && selectedCategoryIndex == favoritesIndex) {
+            favoritesTabBg = COLOR_CATEGORY_ACTIVE;
+        }
+        if (hoverFavoritesTab) favoritesTabBg = COLOR_ACCENT;
+        if (hoverCreateCategory) createCategoryBg = COLOR_ACCENT;
+        if (hoverScrollLeft && canScrollLeft) scrollLeftBg = COLOR_ACCENT;
+        if (hoverScrollRight && canScrollRight) scrollRightBg = COLOR_ACCENT;
         if (hoverAction) actionBg = COLOR_ACCENT;
-        if (hoverAddStar) addBg = COLOR_ACCENT;
+        if (hoverAddCategory) addCategoryBg = COLOR_ACCENT;
+        if (hoverFavoriteButton) favoriteBg = COLOR_ACCENT;
 
-        ctx.fill(favoritesTabX, navbarY, favoritesTabX + TAB_BUTTON_WIDTH, navbarY + NAVBAR_HEIGHT, favoritesTabBg);
         ctx.fill(historyTabX, navbarY, historyTabX + TAB_BUTTON_WIDTH, navbarY + NAVBAR_HEIGHT, historyTabBg);
+        if (favoritesTabWidth > 0) {
+            ctx.fill(favoritesTabX, navbarY, favoritesTabX + favoritesTabWidth, navbarY + NAVBAR_HEIGHT, favoritesTabBg);
+        }
+        ctx.fill(createCategoryX, navbarY, createCategoryX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, createCategoryBg);
+        ctx.fill(scrollLeftX, navbarY, scrollLeftX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
+            canScrollLeft ? scrollLeftBg : COLOR_BUTTON_BG);
+        ctx.fill(scrollRightX, navbarY, scrollRightX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
+            canScrollRight ? scrollRightBg : COLOR_BUTTON_BG);
         ctx.fill(actionX, navbarY, actionX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, actionBg);
-        ctx.fill(addStarX, inputY, addStarX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addBg);
-
-        ctx.drawText(this.textRenderer, "★", favoritesTabX + 6, navbarY + 5,
-            isFavoritesView() ? COLOR_STAR : COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, Text.translatable("screen.cmdpalette.tab.favorites").getString(),
-            favoritesTabX + 18, navbarY + 5, 0xFFC5C8C6, false);
+        ctx.fill(addCategoryX, inputY, addCategoryX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addCategoryBg);
+        ctx.fill(favoriteButtonX, inputY, favoriteButtonX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, favoriteBg);
 
         ctx.drawText(this.textRenderer, "↺", historyTabX + 6, navbarY + 5,
                 currentView == ViewMode.HISTORY ? COLOR_STAR : COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, Text.translatable("screen.cmdpalette.tab.history").getString(),
                 historyTabX + 18, navbarY + 5, 0xFFC5C8C6, false);
 
+        if (favoritesTabWidth > 0 && favoritesIndex >= 0 && favoritesIndex < categories.size()) {
+            boolean favoritesActive = isCategoryView && selectedCategoryIndex == favoritesIndex;
+            ctx.drawText(this.textRenderer, getCategoryDisplayName(categories.get(favoritesIndex)),
+                favoritesTabX + 8, navbarY + 5, favoritesActive ? COLOR_STAR : 0xFFC5C8C6, false);
+        }
+
+        ctx.drawText(this.textRenderer, "+", createCategoryX + 6, navbarY + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, "<", scrollLeftX + 6, navbarY + 5,
+            canScrollLeft ? 0xFFC5C8C6 : 0xFF555555, false);
+        ctx.drawText(this.textRenderer, ">", scrollRightX + 6, navbarY + 5,
+            canScrollRight ? 0xFFC5C8C6 : 0xFF555555, false);
+
+        List<Integer> scrollableCategoryIndices = getScrollableCategoryIndices();
+        int categoryX = categoriesStartX;
+        for (int offset = categoryScrollIndex; offset < scrollableCategoryIndices.size(); offset++) {
+            int categoryIndex = scrollableCategoryIndices.get(offset);
+            CommandCategoriesStore.Category category = categories.get(categoryIndex);
+            int categoryWidth = getCategoryTabWidth(category);
+            if (categoryX + categoryWidth > getCategoryTabsAreaRightX()) {
+                break;
+            }
+
+            boolean hovered = mouseX >= categoryX && mouseX < categoryX + categoryWidth
+                    && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+                boolean active = isCategoryView && selectedCategoryIndex == categoryIndex;
+
+            int bg = active ? COLOR_CATEGORY_ACTIVE : COLOR_BUTTON_BG;
+            if (hovered) {
+                bg = COLOR_ACCENT;
+            }
+
+            ctx.fill(categoryX, navbarY, categoryX + categoryWidth, navbarY + NAVBAR_HEIGHT, bg);
+                ctx.drawText(this.textRenderer, getCategoryDisplayName(category), categoryX + 8, navbarY + 5,
+                    active ? COLOR_STAR : 0xFFC5C8C6, false);
+
+            categoryX += categoryWidth + TAB_GAP;
+        }
+
         ctx.drawText(this.textRenderer, isHistoryView ? "✕" : "⚙", actionX + 6, navbarY + 5, COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, "★+", addStarX + 3, inputY + 6,
-            isCurrentInputFavorite() ? COLOR_STAR : COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, "★+", addCategoryX + 3, inputY + 6,
+            isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
+                isCurrentInputInFavoritesCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
 
         super.render(ctx, mouseX, mouseY, delta);
 
-        if (hoverAddStar) {
-            Text addFavoriteTooltip = isCurrentInputFavorite()
-                    ? Text.translatable("screen.cmdpalette.tooltip.remove_favorite")
-                    : Text.translatable("screen.cmdpalette.tooltip.add_favorite");
-            ctx.drawTooltip(this.textRenderer, addFavoriteTooltip, mouseX, mouseY);
+        if (creatingCategoryInput) {
+            categoryInputField.render(ctx, mouseX, mouseY, delta);
+        }
+
+        if (hoverAddCategory) {
+            Text addCategoryTooltip = isCurrentInputInSelectedCategory()
+                    ? Text.translatable("screen.cmdpalette.tooltip.remove_from_selected_category")
+                    : Text.translatable("screen.cmdpalette.tooltip.add_to_selected_category");
+            ctx.drawTooltip(this.textRenderer, addCategoryTooltip, mouseX, mouseY);
+        } else if (hoverFavoriteButton) {
+            Text favoriteTooltip = isCurrentInputInFavoritesCategory()
+                    ? Text.translatable("screen.cmdpalette.tooltip.remove_from_favorites")
+                    : Text.translatable("screen.cmdpalette.tooltip.add_to_favorites");
+            ctx.drawTooltip(this.textRenderer, favoriteTooltip, mouseX, mouseY);
         } else if (hoverAction) {
             ctx.drawTooltip(this.textRenderer,
                 Text.translatable(isHistoryView
                             ? "screen.cmdpalette.tooltip.clear_history"
                             : "screen.cmdpalette.tooltip.settings_soon"),
                     mouseX, mouseY);
-        } else if (hoverFavoritesTab) {
+        } else if (hoverCreateCategory) {
             ctx.drawTooltip(this.textRenderer,
-                    Text.translatable("screen.cmdpalette.tooltip.favorites_tab"),
+                    Text.translatable("screen.cmdpalette.tooltip.create_category_input"),
                     mouseX, mouseY);
         } else if (hoverHistoryTab) {
             ctx.drawTooltip(this.textRenderer,
@@ -500,7 +916,7 @@ public class CommandPaletteScreen extends Screen {
             String entry = entries.get(idx);
             renderSyntaxHighlighted(ctx, entry, paletteX + 12, sy + 4);
 
-            if (isFavoritesView()) {
+            if (isCategoryView) {
                 int starX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
                 int starY = sy + (SUGGESTION_ITEM_HEIGHT - STAR_ROW_SIZE) / 2;
                 boolean hoverRowStar = mouseX >= starX && mouseX < starX + STAR_ROW_SIZE
@@ -515,7 +931,7 @@ public class CommandPaletteScreen extends Screen {
 
         if (hoverFavoriteRowStar) {
             ctx.drawTooltip(this.textRenderer,
-                    Text.translatable("screen.cmdpalette.tooltip.remove_row_favorite"),
+                    Text.translatable("screen.cmdpalette.tooltip.remove_row_category"),
                     mouseX, mouseY);
         }
 
@@ -593,6 +1009,22 @@ public class CommandPaletteScreen extends Screen {
     @Override
     public boolean keyPressed(KeyInput keyInput) {
         int keyCode = keyInput.key();
+
+        if (creatingCategoryInput) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                createCategoryFromDedicatedInput();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeCategoryCreationInput();
+                return true;
+            }
+            if (categoryInputField.keyPressed(keyInput)) {
+                return true;
+            }
+            return true;
+        }
+
         switch (keyCode) {
             case GLFW.GLFW_KEY_TAB -> {
                 applySelectedSuggestion();
@@ -616,6 +1048,14 @@ public class CommandPaletteScreen extends Screen {
             }
         }
         return super.keyPressed(keyInput);
+    }
+
+    @Override
+    public boolean charTyped(CharInput charInput) {
+        if (creatingCategoryInput) {
+            return categoryInputField.charTyped(charInput);
+        }
+        return super.charTyped(charInput);
     }
 
     private void moveSelection(int direction) {
@@ -648,14 +1088,19 @@ public class CommandPaletteScreen extends Screen {
     public boolean mouseClicked(Click click, boolean bl) {
         int navbarY = getNavbarY();
         int inputY = getInputY();
-        int favoritesTabX = getFavoritesTabX();
         int historyTabX = getHistoryTabX();
+        int favoritesTabX = getFavoritesTabX();
+        int favoritesTabWidth = getFavoritesTabWidth();
+        int favoritesIndex = getFavoritesCategoryIndex(false);
+        int createCategoryX = getCreateCategoryTabX();
+        int categoriesStartX = getCategoryTabsStartX();
+        int scrollLeftX = getCategoryScrollLeftX();
+        int scrollRightX = getCategoryScrollRightX();
         int actionX = getSettingsButtonX();
-        int addStarX = getAddStarX();
+        int addCategoryX = getAddToCategoryButtonX();
+        int favoriteButtonX = getFavoriteButtonX();
 
-        if (click.x() >= favoritesTabX && click.x() < favoritesTabX + TAB_BUTTON_WIDTH
-                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
-            toggleView(ViewMode.FAVORITES);
+        if (creatingCategoryInput && categoryInputField.mouseClicked(click, bl)) {
             return true;
         }
 
@@ -663,6 +1108,59 @@ public class CommandPaletteScreen extends Screen {
                 && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
             toggleView(ViewMode.HISTORY);
             return true;
+        }
+
+        if (click.x() >= createCategoryX && click.x() < createCategoryX + NAVBAR_HEIGHT
+                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
+            openCategoryCreationInput();
+            return true;
+        }
+
+        if (favoritesTabWidth > 0 && click.x() >= favoritesTabX && click.x() < favoritesTabX + favoritesTabWidth
+                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT
+                && favoritesIndex >= 0 && favoritesIndex < categories.size()) {
+            selectedCategoryIndex = favoritesIndex;
+            toggleView(ViewMode.CATEGORY);
+            return true;
+        }
+
+        if (click.x() >= scrollLeftX && click.x() < scrollLeftX + NAVBAR_HEIGHT
+                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
+            if (canScrollCategoriesLeft()) {
+                categoryScrollIndex--;
+                clampCategoryScrollIndex();
+            }
+            return true;
+        }
+
+        if (click.x() >= scrollRightX && click.x() < scrollRightX + NAVBAR_HEIGHT
+                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
+            if (canScrollCategoriesRight()) {
+                categoryScrollIndex++;
+                clampCategoryScrollIndex();
+            }
+            return true;
+        }
+
+        List<Integer> scrollableCategoryIndices = getScrollableCategoryIndices();
+        int categoryX = categoriesStartX;
+        for (int offset = categoryScrollIndex; offset < scrollableCategoryIndices.size(); offset++) {
+            int i = scrollableCategoryIndices.get(offset);
+            CommandCategoriesStore.Category category = categories.get(i);
+            int categoryWidth = getCategoryTabWidth(category);
+            if (categoryX + categoryWidth > getCategoryTabsAreaRightX()) {
+                break;
+            }
+
+            if (click.x() >= categoryX && click.x() < categoryX + categoryWidth
+                    && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
+                selectedCategoryIndex = i;
+                ensureCategoryTabVisible(selectedCategoryIndex);
+                toggleView(ViewMode.CATEGORY);
+                return true;
+            }
+
+            categoryX += categoryWidth + TAB_GAP;
         }
 
         if (click.x() >= actionX && click.x() < actionX + NAVBAR_HEIGHT
@@ -673,15 +1171,21 @@ public class CommandPaletteScreen extends Screen {
             }
         }
 
-        if (click.x() >= addStarX && click.x() < addStarX + STAR_BUTTON_SIZE
-                && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
-            toggleCurrentInputFavorite();
+        if (click.x() >= addCategoryX && click.x() < addCategoryX + STAR_BUTTON_SIZE
+            && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
+            toggleCurrentInputCategoryCommand();
+            return true;
+        }
+
+        if (click.x() >= favoriteButtonX && click.x() < favoriteButtonX + STAR_BUTTON_SIZE
+            && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
+            toggleCurrentInputFavoriteCommand();
             return true;
         }
 
         int removeIndex = getFavoriteRemoveIndexAt(click.x(), click.y());
         if (removeIndex >= 0) {
-            removeFavoriteAt(removeIndex);
+            removeCategoryCommandAt(removeIndex);
             return true;
         }
 
@@ -697,6 +1201,25 @@ public class CommandPaletteScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY,
                                   double horizontalAmount, double verticalAmount) {
+        int navbarY = getNavbarY();
+        int categoriesStartX = getCategoryScrollLeftX();
+        int categoriesEndX = getCategoryScrollRightX() + NAVBAR_HEIGHT;
+        boolean overCategoryTabs = mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT
+                && mouseX >= categoriesStartX && mouseX < categoriesEndX;
+
+        if (overCategoryTabs && categories.size() > getVisibleCategoryCountFrom(0)) {
+            if (verticalAmount < 0) {
+                categoryScrollIndex++;
+                clampCategoryScrollIndex();
+                return true;
+            }
+            if (verticalAmount > 0) {
+                categoryScrollIndex--;
+                clampCategoryScrollIndex();
+                return true;
+            }
+        }
+
         int currentSize = getVisibleEntries().size();
         if (currentSize > MAX_VISIBLE) {
             int maxScroll = currentSize - MAX_VISIBLE;
@@ -723,11 +1246,11 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getFavoriteRemoveIndexAt(double mouseX, double mouseY) {
-        if (!isFavoritesView()) return -1;
+        if (!isCategoryView()) return -1;
 
         int paletteX = (this.width - PALETTE_WIDTH) / 2;
         int listStartY = getSeparatorY() + 4;
-        int currentSize = favorites.size();
+        int currentSize = getSelectedCategoryCommands().size();
         int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
         int starX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
 
