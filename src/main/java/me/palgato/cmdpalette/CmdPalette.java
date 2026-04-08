@@ -1,8 +1,8 @@
-package me.palgato.commandly;
+package me.palgato.cmdpalette;
 
 import net.fabricmc.api.ModInitializer;
 
-public class Commandly implements ModInitializer {
+public class CmdPalette implements ModInitializer {
 
     @Override
     public void onInitialize() {

@@ -1,4 +1,4 @@
-package me.palgato.commandly.client.palette;
+package me.palgato.cmdpalette.client.palette;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.ParseResults;
@@ -91,7 +91,7 @@ public class CommandPaletteScreen extends Screen {
     }
 
     public CommandPaletteScreen() {
-        super(Text.translatable("screen.commandly.command_palette"));
+        super(Text.translatable("screen.cmdpalette.command_palette"));
     }
 
     @Override
@@ -434,12 +434,12 @@ public class CommandPaletteScreen extends Screen {
 
         ctx.drawText(this.textRenderer, "★", favoritesTabX + 6, navbarY + 5,
             isFavoritesView() ? COLOR_STAR : COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, Text.translatable("screen.commandly.tab.favorites").getString(),
+        ctx.drawText(this.textRenderer, Text.translatable("screen.cmdpalette.tab.favorites").getString(),
             favoritesTabX + 18, navbarY + 5, 0xFFC5C8C6, false);
 
         ctx.drawText(this.textRenderer, "↺", historyTabX + 6, navbarY + 5,
                 currentView == ViewMode.HISTORY ? COLOR_STAR : COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, Text.translatable("screen.commandly.tab.history").getString(),
+        ctx.drawText(this.textRenderer, Text.translatable("screen.cmdpalette.tab.history").getString(),
                 historyTabX + 18, navbarY + 5, 0xFFC5C8C6, false);
 
         ctx.drawText(this.textRenderer, isHistoryView ? "✕" : "⚙", actionX + 6, navbarY + 5, COLOR_STAR_OFF, false);
@@ -450,22 +450,22 @@ public class CommandPaletteScreen extends Screen {
 
         if (hoverAddStar) {
             Text addFavoriteTooltip = isCurrentInputFavorite()
-                    ? Text.translatable("screen.commandly.tooltip.remove_favorite")
-                    : Text.translatable("screen.commandly.tooltip.add_favorite");
+                    ? Text.translatable("screen.cmdpalette.tooltip.remove_favorite")
+                    : Text.translatable("screen.cmdpalette.tooltip.add_favorite");
             ctx.drawTooltip(this.textRenderer, addFavoriteTooltip, mouseX, mouseY);
         } else if (hoverAction) {
             ctx.drawTooltip(this.textRenderer,
                 Text.translatable(isHistoryView
-                    ? "screen.commandly.tooltip.clear_history"
-                    : "screen.commandly.tooltip.settings_soon"),
+                            ? "screen.cmdpalette.tooltip.clear_history"
+                            : "screen.cmdpalette.tooltip.settings_soon"),
                     mouseX, mouseY);
         } else if (hoverFavoritesTab) {
             ctx.drawTooltip(this.textRenderer,
-                    Text.translatable("screen.commandly.tooltip.favorites_tab"),
+                    Text.translatable("screen.cmdpalette.tooltip.favorites_tab"),
                     mouseX, mouseY);
         } else if (hoverHistoryTab) {
             ctx.drawTooltip(this.textRenderer,
-                Text.translatable("screen.commandly.tooltip.history_tab"),
+                Text.translatable("screen.cmdpalette.tooltip.history_tab"),
                 mouseX, mouseY);
         }
 
@@ -515,7 +515,7 @@ public class CommandPaletteScreen extends Screen {
 
         if (hoverFavoriteRowStar) {
             ctx.drawTooltip(this.textRenderer,
-                    Text.translatable("screen.commandly.tooltip.remove_row_favorite"),
+                    Text.translatable("screen.cmdpalette.tooltip.remove_row_favorite"),
                     mouseX, mouseY);
         }
 

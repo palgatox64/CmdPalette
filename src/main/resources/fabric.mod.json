@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "id": "commandly",
+  "id": "cmdpalette",
   "version": "${version}",
 
-  "name": "Commandly",
+  "name": "CmdPalette",
   "description": "A high-efficiency command palette for Minecraft. Streamlines command execution and navigation through a responsive fuzzy-search interface.",
   "authors": [],
   "contact": {},
 
   "license": "All-Rights-Reserved",
-  "icon": "assets/commandly/icon.png",
+  "icon": "assets/cmdpalette/icon.png",
 
   "environment": "client",
   "entrypoints": {
-    "fabric-datagen": ["me.palgato.commandly.client.CommandlyDataGenerator"],
-    "client": ["me.palgato.commandly.client.CommandlyClient"],
-    "main": ["me.palgato.commandly.Commandly"]
+    "fabric-datagen": ["me.palgato.cmdpalette.client.CmdPaletteDataGenerator"],
+    "client": ["me.palgato.cmdpalette.client.CmdPaletteClient"],
+    "main": ["me.palgato.cmdpalette.CmdPalette"]
   },
 
   "mixins": [
-    "commandly.mixins.json"
+    "cmdpalette.mixins.json"
     ,{
-      "config": "commandly.client.mixins.json",
+      "config": "cmdpalette.client.mixins.json",
       "environment": "client"
     }
   ],

@@ -1,0 +1,14 @@
+{
+  "key.cmdpalette.open_palette": "Open Command Palette",
+  "category.cmdpalette": "CmdPalette",
+  "screen.cmdpalette.command_palette": "Command Palette",
+  "screen.cmdpalette.tab.favorites": "Favorites",
+  "screen.cmdpalette.tab.history": "History",
+  "screen.cmdpalette.tooltip.favorites_tab": "Open favorites view",
+  "screen.cmdpalette.tooltip.history_tab": "Open command history",
+  "screen.cmdpalette.tooltip.clear_history": "Clear command history",
+  "screen.cmdpalette.tooltip.add_favorite": "Add current command to favorites",
+  "screen.cmdpalette.tooltip.remove_favorite": "Remove current command from favorites",
+  "screen.cmdpalette.tooltip.remove_row_favorite": "Remove this favorite",
+  "screen.cmdpalette.tooltip.settings_soon": "Settings (coming soon)"
+}

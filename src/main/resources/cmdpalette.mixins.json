@@ -1,7 +1,7 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "me.palgato.commandly.mixin",
+  "package": "me.palgato.cmdpalette.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
   ],

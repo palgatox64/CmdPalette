@@ -1,7 +1,7 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "me.palgato.commandly.mixin.client",
+  "package": "me.palgato.cmdpalette.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
   ],

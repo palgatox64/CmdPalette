@@ -1,4 +1,4 @@
-package me.palgato.commandly.client.palette;
+package me.palgato.cmdpalette.client.palette;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -19,7 +19,7 @@ public final class CommandHistoryStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE_PATH = FabricLoader.getInstance()
             .getConfigDir()
-            .resolve("commandly-history.json");
+            .resolve("cmdpalette-history.json");
 
     private CommandHistoryStore() {
     }
