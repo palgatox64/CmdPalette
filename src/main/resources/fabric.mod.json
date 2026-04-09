@@ -8,7 +8,7 @@
   "authors": [],
   "contact": {},
 
-  "license": "All-Rights-Reserved",
+  "license": "MIT",
   "icon": "assets/cmdpalette/icon.png",
 
   "environment": "client",
