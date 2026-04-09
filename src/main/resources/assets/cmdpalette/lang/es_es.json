@@ -18,5 +18,7 @@
   "screen.cmdpalette.tooltip.open_settings": "Abrir configuración",
   "screen.cmdpalette.tooltip.close_settings": "Cerrar configuración",
   "screen.cmdpalette.settings.max_visible": "Máximo de items visibles",
-  "screen.cmdpalette.settings.hide_slash": "Ocultar e ignorar prefijo /"
+  "screen.cmdpalette.settings.hide_slash": "Ocultar e ignorar prefijo /",
+  "screen.cmdpalette.tooltip.add_to_category_menu": "Agregar comando a una categoría",
+  "screen.cmdpalette.menu.new_category": "Nueva categoría"
 }

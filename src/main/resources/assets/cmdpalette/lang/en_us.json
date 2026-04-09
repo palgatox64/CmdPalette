@@ -18,5 +18,7 @@
   "screen.cmdpalette.tooltip.open_settings": "Open settings",
   "screen.cmdpalette.tooltip.close_settings": "Close settings",
   "screen.cmdpalette.settings.max_visible": "Max visible items",
-  "screen.cmdpalette.settings.hide_slash": "Hide and ignore / prefix"
+  "screen.cmdpalette.settings.hide_slash": "Hide and ignore / prefix",
+  "screen.cmdpalette.tooltip.add_to_category_menu": "Add command to a category",
+  "screen.cmdpalette.menu.new_category": "New category"
 }

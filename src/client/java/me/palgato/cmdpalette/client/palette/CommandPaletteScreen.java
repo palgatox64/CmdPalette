@@ -44,6 +44,8 @@ public class CommandPaletteScreen extends Screen {
     private static final int TAB_GAP = 4;
     private static final int CATEGORY_TAB_MIN_WIDTH = 64;
     private static final int CATEGORY_TAB_MAX_WIDTH = 120;
+    private static final int CATEGORY_PICKER_WIDTH = 180;
+    private static final int CATEGORY_PICKER_ROW_HEIGHT = 18;
     private static final int MAX_HISTORY_ENTRIES = 100;
 
     private static final int COLOR_OVERLAY = 0xB0000000;
@@ -88,6 +90,7 @@ public class CommandPaletteScreen extends Screen {
     private int scrollOffset = 0;
     private int selectedCategoryIndex = -1;
     private int categoryScrollIndex = 0;
+    private boolean categoryPickerOpen = false;
     private int maxVisibleItems = CommandPaletteSettingsStore.DEFAULT_MAX_VISIBLE_ITEMS;
     private boolean hideSlashPrefix = false;
     private boolean creatingCategoryInput = false;
@@ -317,16 +320,12 @@ public class CommandPaletteScreen extends Screen {
         return getCategoryTabWidth(categories.get(favoritesIndex));
     }
 
-    private int getCreateCategoryTabX() {
+    private int getCategoryScrollLeftX() {
         int favoritesWidth = getFavoritesTabWidth();
         if (favoritesWidth > 0) {
             return getFavoritesTabX() + favoritesWidth + TAB_GAP;
         }
         return getHistoryTabX() + TAB_BUTTON_WIDTH + TAB_GAP;
-    }
-
-    private int getCategoryScrollLeftX() {
-        return getCreateCategoryTabX() + NAVBAR_HEIGHT + TAB_GAP;
     }
 
     private int getCategoryTabsStartX() {
@@ -352,15 +351,32 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getCategoryInputX() {
-        return getCategoryTabsStartX();
+        return getCategoryPickerX() + 4;
     }
 
     private int getCategoryInputY() {
-        return getNavbarY();
+        return getCategoryPickerY() + 2;
     }
 
     private int getCategoryInputWidth() {
-        return Math.max(96, getCategoryTabsAreaRightX() - getCategoryInputX());
+        return CATEGORY_PICKER_WIDTH - 8;
+    }
+
+    private int getCategoryPickerX() {
+        int x = getAddToCategoryButtonX() - CATEGORY_PICKER_WIDTH + STAR_BUTTON_SIZE;
+        return Math.max(getInputX(), x);
+    }
+
+    private int getCategoryPickerY() {
+        return getInputY() + INPUT_HEIGHT + 4;
+    }
+
+    private int getCategoryPickerHeight() {
+        if (creatingCategoryInput) {
+            return CATEGORY_PICKER_ROW_HEIGHT + 4;
+        }
+        int rows = getAssignableCategoryIndices().size() + 1;
+        return rows * CATEGORY_PICKER_ROW_HEIGHT + 4;
     }
 
     private int getCategoryTabsAreaRightX() {
@@ -376,6 +392,53 @@ public class CommandPaletteScreen extends Screen {
             }
         }
         return indices;
+    }
+
+    private List<Integer> getAssignableCategoryIndices() {
+        return getScrollableCategoryIndices();
+    }
+
+    private void openCategoryPicker() {
+        categoryPickerOpen = true;
+        creatingCategoryInput = false;
+        categoryInputField.setVisible(false);
+    }
+
+    private void closeCategoryPicker() {
+        categoryPickerOpen = false;
+        closeCategoryCreationInput();
+    }
+
+    private boolean isInsideCategoryPicker(double mouseX, double mouseY) {
+        if (!categoryPickerOpen) return false;
+        int x = getCategoryPickerX();
+        int y = getCategoryPickerY();
+        int width = CATEGORY_PICKER_WIDTH;
+        int height = getCategoryPickerHeight();
+        return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
+    }
+
+    private int getCategoryPickerRowIndexAt(double mouseX, double mouseY) {
+        if (!isInsideCategoryPicker(mouseX, mouseY) || creatingCategoryInput) {
+            return -1;
+        }
+        int y = getCategoryPickerY() + 2;
+        return (int) ((mouseY - y) / CATEGORY_PICKER_ROW_HEIGHT);
+    }
+
+    private void addCurrentInputToCategory(int categoryIndex) {
+        if (categoryIndex < 0 || categoryIndex >= categories.size()) return;
+
+        String normalized = normalizeCommand(inputField.getText());
+        if (normalized.isBlank()) return;
+
+        CommandCategoriesStore.Category category = categories.get(categoryIndex);
+        List<String> commands = new ArrayList<>(category.commands());
+        if (!commands.contains(normalized)) {
+            commands.add(normalized);
+            categories.set(categoryIndex, new CommandCategoriesStore.Category(category.name(), commands));
+            CommandCategoriesStore.save(categories);
+        }
     }
 
     private boolean canScrollCategoriesLeft() {
@@ -652,8 +715,11 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private void openCategoryCreationInput() {
+        categoryPickerOpen = true;
         creatingCategoryInput = true;
         categoryInputField.setText("");
+        categoryInputField.setWidth(getCategoryInputWidth());
+        categoryInputField.setPosition(getCategoryInputX(), getCategoryInputY());
         categoryInputField.setVisible(true);
         inputField.setFocused(false);
         categoryInputField.setFocused(true);
@@ -674,26 +740,28 @@ public class CommandPaletteScreen extends Screen {
         String name = raw.trim();
         if (name.isBlank()) return;
 
+        int targetIndex = -1;
+
         for (int i = 0; i < categories.size(); i++) {
             if (categories.get(i).name().equalsIgnoreCase(name)) {
-                selectedCategoryIndex = i;
-                setView(ViewMode.CATEGORY);
-                ensureCategoryTabVisible(selectedCategoryIndex);
-                closeCategoryCreationInput();
-                return;
+                targetIndex = i;
+                break;
             }
         }
 
-        if (name.length() > 24) {
-            name = name.substring(0, 24);
+        if (targetIndex < 0) {
+            if (name.length() > 24) {
+                name = name.substring(0, 24);
+            }
+            categories.add(new CommandCategoriesStore.Category(name, new ArrayList<>()));
+            targetIndex = categories.size() - 1;
+            CommandCategoriesStore.save(categories);
         }
 
-        categories.add(new CommandCategoriesStore.Category(name, new ArrayList<>()));
-        selectedCategoryIndex = categories.size() - 1;
-        CommandCategoriesStore.save(categories);
-        setView(ViewMode.CATEGORY);
+        selectedCategoryIndex = targetIndex;
+        addCurrentInputToCategory(targetIndex);
         ensureCategoryTabVisible(selectedCategoryIndex);
-        closeCategoryCreationInput();
+        closeCategoryPicker();
     }
 
     private void setView(ViewMode viewMode) {
@@ -883,7 +951,6 @@ public class CommandPaletteScreen extends Screen {
         int favoritesTabX = getFavoritesTabX();
         int favoritesTabWidth = getFavoritesTabWidth();
         int favoritesIndex = getFavoritesCategoryIndex(false);
-        int createCategoryX = getCreateCategoryTabX();
         int categoriesStartX = getCategoryTabsStartX();
         int scrollLeftX = getCategoryScrollLeftX();
         int scrollRightX = getCategoryScrollRightX();
@@ -899,8 +966,6 @@ public class CommandPaletteScreen extends Screen {
 
         boolean hoverHistoryTab = mouseX >= historyTabX && mouseX < historyTabX + TAB_BUTTON_WIDTH
                 && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
-        boolean hoverCreateCategory = mouseX >= createCategoryX && mouseX < createCategoryX + NAVBAR_HEIGHT
-                && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverFavoritesTab = favoritesTabWidth > 0
             && mouseX >= favoritesTabX && mouseX < favoritesTabX + favoritesTabWidth
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
@@ -915,7 +980,6 @@ public class CommandPaletteScreen extends Screen {
         boolean hoverFavoriteButton = mouseX >= favoriteButtonX && mouseX < favoriteButtonX + STAR_BUTTON_SIZE
             && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
 
-        int createCategoryBg = COLOR_BUTTON_BG;
         int favoritesTabBg = COLOR_BUTTON_BG;
         int scrollLeftBg = COLOR_BUTTON_BG;
         int scrollRightBg = COLOR_BUTTON_BG;
@@ -929,7 +993,6 @@ public class CommandPaletteScreen extends Screen {
             favoritesTabBg = COLOR_CATEGORY_ACTIVE;
         }
         if (hoverFavoritesTab) favoritesTabBg = COLOR_ACCENT;
-        if (hoverCreateCategory) createCategoryBg = COLOR_ACCENT;
         if (hoverScrollLeft && canScrollLeft) scrollLeftBg = COLOR_ACCENT;
         if (hoverScrollRight && canScrollRight) scrollRightBg = COLOR_ACCENT;
         if (hoverAction && (isHistoryView || isSettingsView || canDeleteCategory || currentView == ViewMode.COMMANDS)) {
@@ -942,7 +1005,6 @@ public class CommandPaletteScreen extends Screen {
         if (favoritesTabWidth > 0) {
             ctx.fill(favoritesTabX, navbarY, favoritesTabX + favoritesTabWidth, navbarY + NAVBAR_HEIGHT, favoritesTabBg);
         }
-        ctx.fill(createCategoryX, navbarY, createCategoryX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, createCategoryBg);
         ctx.fill(scrollLeftX, navbarY, scrollLeftX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
             canScrollLeft ? scrollLeftBg : COLOR_BUTTON_BG);
         ctx.fill(scrollRightX, navbarY, scrollRightX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
@@ -963,7 +1025,6 @@ public class CommandPaletteScreen extends Screen {
                 favoritesTabX + 8, navbarY + 5, favoritesActive ? COLOR_STAR : 0xFFC5C8C6, false);
         }
 
-        ctx.drawText(this.textRenderer, "+", createCategoryX + 6, navbarY + 5, COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, "<", scrollLeftX + 6, navbarY + 5,
             canScrollLeft ? 0xFFC5C8C6 : 0xFF555555, false);
         ctx.drawText(this.textRenderer, ">", scrollRightX + 6, navbarY + 5,
@@ -1012,10 +1073,9 @@ public class CommandPaletteScreen extends Screen {
         }
 
         if (hoverAddCategory) {
-            Text addCategoryTooltip = isCurrentInputInSelectedCategory()
-                    ? Text.translatable("screen.cmdpalette.tooltip.remove_from_selected_category")
-                    : Text.translatable("screen.cmdpalette.tooltip.add_to_selected_category");
-            ctx.drawTooltip(this.textRenderer, addCategoryTooltip, mouseX, mouseY);
+            ctx.drawTooltip(this.textRenderer,
+                Text.translatable("screen.cmdpalette.tooltip.add_to_category_menu"),
+                mouseX, mouseY);
         } else if (hoverFavoriteButton) {
             Text favoriteTooltip = isCurrentInputInFavoritesCategory()
                     ? Text.translatable("screen.cmdpalette.tooltip.remove_from_favorites")
@@ -1032,10 +1092,6 @@ public class CommandPaletteScreen extends Screen {
                                 : "screen.cmdpalette.tooltip.delete_category_disabled")
                             : "screen.cmdpalette.tooltip.open_settings"));
             ctx.drawTooltip(this.textRenderer, Text.translatable(tooltipKey), mouseX, mouseY);
-        } else if (hoverCreateCategory) {
-            ctx.drawTooltip(this.textRenderer,
-                    Text.translatable("screen.cmdpalette.tooltip.create_category_input"),
-                    mouseX, mouseY);
         } else if (hoverHistoryTab) {
             ctx.drawTooltip(this.textRenderer,
                 Text.translatable("screen.cmdpalette.tooltip.history_tab"),
@@ -1056,6 +1112,7 @@ public class CommandPaletteScreen extends Screen {
         int currentSize = entries.size();
         int maxVisible = getConfiguredMaxVisibleItems();
         int visibleCount = Math.min(currentSize - scrollOffset, maxVisible);
+        boolean blockBackgroundHover = categoryPickerOpen;
         boolean hoverCategoryRowRemove = false;
 
         for (int i = 0; i < visibleCount; i++) {
@@ -1065,7 +1122,8 @@ public class CommandPaletteScreen extends Screen {
             int sy = listStartY + i * SUGGESTION_ITEM_HEIGHT;
 
             boolean selected = idx == selectedIndex;
-            boolean hovered = mouseX >= paletteX + 4 && mouseX <= paletteX + paletteWidth - 4
+                boolean hovered = !blockBackgroundHover
+                    && mouseX >= paletteX + 4 && mouseX <= paletteX + paletteWidth - 4
                     && mouseY >= sy && mouseY < sy + SUGGESTION_ITEM_HEIGHT;
 
             if (selected) {
@@ -1082,7 +1140,8 @@ public class CommandPaletteScreen extends Screen {
             if (isCategoryView) {
                 int removeX = paletteX + paletteWidth - PADDING - STAR_ROW_SIZE;
                 int removeY = sy + (SUGGESTION_ITEM_HEIGHT - STAR_ROW_SIZE) / 2;
-                boolean hoverRowRemove = mouseX >= removeX && mouseX < removeX + STAR_ROW_SIZE
+                boolean hoverRowRemove = !blockBackgroundHover
+                    && mouseX >= removeX && mouseX < removeX + STAR_ROW_SIZE
                         && mouseY >= removeY && mouseY < removeY + STAR_ROW_SIZE;
                 if (hoverRowRemove) {
                     hoverCategoryRowRemove = true;
@@ -1105,6 +1164,13 @@ public class CommandPaletteScreen extends Screen {
             ctx.fill(paletteX + paletteWidth - 6, barY,
                     paletteX + paletteWidth - 3, barY + barHeight, COLOR_SCROLLBAR);
         }
+
+        if (categoryPickerOpen) {
+            renderCategoryPicker(ctx, mouseX, mouseY);
+            if (creatingCategoryInput) {
+                categoryInputField.render(ctx, mouseX, mouseY, delta);
+            }
+        }
     }
 
     private int computePaletteHeight() {
@@ -1115,6 +1181,42 @@ public class CommandPaletteScreen extends Screen {
 
         int listHeight = Math.min(getVisibleEntries().size(), getConfiguredMaxVisibleItems()) * SUGGESTION_ITEM_HEIGHT;
         return headerHeight + listHeight + PADDING;
+    }
+
+    private void renderCategoryPicker(DrawContext ctx, int mouseX, int mouseY) {
+        int pickerX = getCategoryPickerX();
+        int pickerY = getCategoryPickerY();
+        int pickerWidth = CATEGORY_PICKER_WIDTH;
+        int pickerHeight = getCategoryPickerHeight();
+
+        ctx.fill(pickerX, pickerY, pickerX + pickerWidth, pickerY + pickerHeight, COLOR_BUTTON_BG);
+        ctx.fill(pickerX, pickerY, pickerX + pickerWidth, pickerY + 1, COLOR_BORDER_TOP);
+
+        if (creatingCategoryInput) {
+            return;
+        }
+
+        List<Integer> assignable = getAssignableCategoryIndices();
+        int rowY = pickerY + 2;
+        for (int i = 0; i < assignable.size(); i++) {
+            int idx = assignable.get(i);
+            boolean hoverRow = mouseX >= pickerX && mouseX < pickerX + pickerWidth
+                    && mouseY >= rowY && mouseY < rowY + CATEGORY_PICKER_ROW_HEIGHT;
+            if (hoverRow) {
+                ctx.fill(pickerX + 1, rowY, pickerX + pickerWidth - 1, rowY + CATEGORY_PICKER_ROW_HEIGHT, COLOR_ACCENT);
+            }
+            ctx.drawText(this.textRenderer, getCategoryDisplayName(categories.get(idx)),
+                    pickerX + 6, rowY + 5, 0xFFC5C8C6, false);
+            rowY += CATEGORY_PICKER_ROW_HEIGHT;
+        }
+
+        boolean hoverNew = mouseX >= pickerX && mouseX < pickerX + pickerWidth
+                && mouseY >= rowY && mouseY < rowY + CATEGORY_PICKER_ROW_HEIGHT;
+        if (hoverNew) {
+            ctx.fill(pickerX + 1, rowY, pickerX + pickerWidth - 1, rowY + CATEGORY_PICKER_ROW_HEIGHT, COLOR_ACCENT);
+        }
+        ctx.drawText(this.textRenderer, "+ " + Text.translatable("screen.cmdpalette.menu.new_category").getString(),
+                pickerX + 6, rowY + 5, COLOR_STAR, false);
     }
 
         private void renderSettingsContent(DrawContext ctx, int mouseX, int mouseY) {
@@ -1222,10 +1324,18 @@ public class CommandPaletteScreen extends Screen {
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                closeCategoryCreationInput();
+                closeCategoryPicker();
                 return true;
             }
             if (categoryInputField.keyPressed(keyInput)) {
+                return true;
+            }
+            return true;
+        }
+
+        if (categoryPickerOpen) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeCategoryPicker();
                 return true;
             }
             return true;
@@ -1268,6 +1378,9 @@ public class CommandPaletteScreen extends Screen {
     public boolean charTyped(CharInput charInput) {
         if (creatingCategoryInput) {
             return categoryInputField.charTyped(charInput);
+        }
+        if (categoryPickerOpen) {
+            return true;
         }
         if (currentView == ViewMode.SETTINGS) {
             return true;
@@ -1315,7 +1428,6 @@ public class CommandPaletteScreen extends Screen {
         int favoritesTabX = getFavoritesTabX();
         int favoritesTabWidth = getFavoritesTabWidth();
         int favoritesIndex = getFavoritesCategoryIndex(false);
-        int createCategoryX = getCreateCategoryTabX();
         int categoriesStartX = getCategoryTabsStartX();
         int scrollLeftX = getCategoryScrollLeftX();
         int scrollRightX = getCategoryScrollRightX();
@@ -1323,19 +1435,33 @@ public class CommandPaletteScreen extends Screen {
         int addCategoryX = getAddToCategoryButtonX();
         int favoriteButtonX = getFavoriteButtonX();
 
-        if (creatingCategoryInput && categoryInputField.mouseClicked(click, bl)) {
-            return true;
+        if (categoryPickerOpen) {
+            if (creatingCategoryInput && categoryInputField.mouseClicked(click, bl)) {
+                return true;
+            }
+
+            if (isInsideCategoryPicker(click.x(), click.y())) {
+                int row = getCategoryPickerRowIndexAt(click.x(), click.y());
+                if (row >= 0) {
+                    List<Integer> assignable = getAssignableCategoryIndices();
+                    if (row < assignable.size()) {
+                        addCurrentInputToCategory(assignable.get(row));
+                        closeCategoryPicker();
+                        return true;
+                    }
+                    if (row == assignable.size()) {
+                        openCategoryCreationInput();
+                        return true;
+                    }
+                }
+            } else {
+                closeCategoryPicker();
+            }
         }
 
         if (click.x() >= historyTabX && click.x() < historyTabX + TAB_BUTTON_WIDTH
                 && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
             toggleView(ViewMode.HISTORY);
-            return true;
-        }
-
-        if (click.x() >= createCategoryX && click.x() < createCategoryX + NAVBAR_HEIGHT
-                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
-            openCategoryCreationInput();
             return true;
         }
 
@@ -1439,7 +1565,11 @@ public class CommandPaletteScreen extends Screen {
 
         if (click.x() >= addCategoryX && click.x() < addCategoryX + STAR_BUTTON_SIZE
             && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
-            toggleCurrentInputCategoryCommand();
+            if (categoryPickerOpen) {
+                closeCategoryPicker();
+            } else {
+                openCategoryPicker();
+            }
             return true;
         }
 
