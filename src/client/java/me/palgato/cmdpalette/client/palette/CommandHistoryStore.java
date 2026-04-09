@@ -17,19 +17,24 @@ import java.util.List;
 public final class CommandHistoryStore {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE_PATH = FabricLoader.getInstance()
-            .getConfigDir()
-            .resolve("cmdpalette-history.json");
+    private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir();
+    private static final Path FILE_PATH = CONFIG_DIR.resolve("cmdpalette-history.json");
+    private static final Path PROFILES_DIR = CONFIG_DIR.resolve("cmdpalette").resolve("profiles");
 
     private CommandHistoryStore() {
     }
 
     public static List<String> load() {
-        if (!Files.exists(FILE_PATH)) {
+        return load(null);
+    }
+
+    public static List<String> load(String scopeKey) {
+        Path path = resolvePath(scopeKey);
+        if (!Files.exists(path)) {
             return new ArrayList<>();
         }
 
-        try (Reader reader = Files.newBufferedReader(FILE_PATH)) {
+        try (Reader reader = Files.newBufferedReader(path)) {
             HistoryPayload payload = GSON.fromJson(reader, HistoryPayload.class);
             if (payload == null || payload.history == null) {
                 return new ArrayList<>();
@@ -41,16 +46,41 @@ public final class CommandHistoryStore {
     }
 
     public static void save(List<String> history) {
+        save(history, null);
+    }
+
+    public static void save(List<String> history, String scopeKey) {
         HistoryPayload payload = new HistoryPayload();
         payload.history = sanitize(history);
+        Path path = resolvePath(scopeKey);
 
         try {
-            Files.createDirectories(FILE_PATH.getParent());
-            try (Writer writer = Files.newBufferedWriter(FILE_PATH)) {
+            Files.createDirectories(path.getParent());
+            try (Writer writer = Files.newBufferedWriter(path)) {
                 GSON.toJson(payload, writer);
             }
         } catch (IOException ignored) {
         }
+    }
+
+    private static Path resolvePath(String scopeKey) {
+        if (scopeKey == null || scopeKey.isBlank()) {
+            return FILE_PATH;
+        }
+        return PROFILES_DIR.resolve(sanitizeScopeKey(scopeKey)).resolve("history.json");
+    }
+
+    private static String sanitizeScopeKey(String value) {
+        String normalized = value.trim().toLowerCase().replaceAll("[^a-z0-9._-]+", "_");
+        normalized = normalized.replaceAll("_+", "_");
+        normalized = normalized.replaceAll("^_+|_+$", "");
+        if (normalized.isBlank()) {
+            return "default";
+        }
+        if (normalized.length() > 80) {
+            return normalized.substring(0, 80);
+        }
+        return normalized;
     }
 
     private static List<String> sanitize(List<String> history) {

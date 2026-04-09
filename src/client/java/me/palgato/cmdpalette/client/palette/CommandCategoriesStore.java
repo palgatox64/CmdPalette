@@ -21,19 +21,24 @@ public final class CommandCategoriesStore {
     public static final String DEFAULT_CATEGORY_NAME = "Favorites";
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE_PATH = FabricLoader.getInstance()
-            .getConfigDir()
-            .resolve("cmdpalette-categories.json");
+    private static final Path CONFIG_DIR = FabricLoader.getInstance().getConfigDir();
+    private static final Path FILE_PATH = CONFIG_DIR.resolve("cmdpalette-categories.json");
+    private static final Path PROFILES_DIR = CONFIG_DIR.resolve("cmdpalette").resolve("profiles");
 
     private CommandCategoriesStore() {
     }
 
     public static List<Category> load() {
-        if (!Files.exists(FILE_PATH)) {
-            return migrateFromLegacyFavorites();
+        return load(null);
+    }
+
+    public static List<Category> load(String scopeKey) {
+        Path path = resolvePath(scopeKey);
+        if (!Files.exists(path)) {
+            return scopeKey == null ? migrateFromLegacyFavorites() : new ArrayList<>();
         }
 
-        try (Reader reader = Files.newBufferedReader(FILE_PATH)) {
+        try (Reader reader = Files.newBufferedReader(path)) {
             CategoriesPayload payload = GSON.fromJson(reader, CategoriesPayload.class);
             if (payload == null || payload.categories == null) {
                 return new ArrayList<>();
@@ -45,12 +50,17 @@ public final class CommandCategoriesStore {
     }
 
     public static void save(List<Category> categories) {
+        save(categories, null);
+    }
+
+    public static void save(List<Category> categories, String scopeKey) {
         CategoriesPayload payload = new CategoriesPayload();
         payload.categories = sanitize(categories);
+        Path path = resolvePath(scopeKey);
 
         try {
-            Files.createDirectories(FILE_PATH.getParent());
-            try (Writer writer = Files.newBufferedWriter(FILE_PATH)) {
+            Files.createDirectories(path.getParent());
+            try (Writer writer = Files.newBufferedWriter(path)) {
                 GSON.toJson(payload, writer);
             }
         } catch (IOException ignored) {
@@ -65,8 +75,28 @@ public final class CommandCategoriesStore {
 
         List<Category> migrated = new ArrayList<>();
         migrated.add(new Category(DEFAULT_CATEGORY_NAME, favorites));
-        save(migrated);
+        save(migrated, null);
         return migrated;
+    }
+
+    private static Path resolvePath(String scopeKey) {
+        if (scopeKey == null || scopeKey.isBlank()) {
+            return FILE_PATH;
+        }
+        return PROFILES_DIR.resolve(sanitizeScopeKey(scopeKey)).resolve("categories.json");
+    }
+
+    private static String sanitizeScopeKey(String value) {
+        String normalized = value.trim().toLowerCase().replaceAll("[^a-z0-9._-]+", "_");
+        normalized = normalized.replaceAll("_+", "_");
+        normalized = normalized.replaceAll("^_+|_+$", "");
+        if (normalized.isBlank()) {
+            return "default";
+        }
+        if (normalized.length() > 80) {
+            return normalized.substring(0, 80);
+        }
+        return normalized;
     }
 
     private static List<Category> sanitize(List<Category> categories) {

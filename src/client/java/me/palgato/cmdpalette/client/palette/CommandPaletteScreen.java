@@ -106,6 +106,7 @@ public class CommandPaletteScreen extends Screen {
     private static final long THEME_LIBRARY_CHECK_INTERVAL_MS = 1000L;
     private int maxVisibleItems = CommandPaletteSettingsStore.DEFAULT_MAX_VISIBLE_ITEMS;
     private boolean hideSlashPrefix = false;
+    private CommandPaletteSettingsStore.ScopeMode commandDataScopeMode = CommandPaletteSettingsStore.ScopeMode.GLOBAL;
     private boolean creatingCategoryInput = false;
     private boolean renamingTheme = false;
     private ViewMode viewBeforeSettings = ViewMode.COMMANDS;
@@ -227,14 +228,11 @@ public class CommandPaletteScreen extends Screen {
         CommandPaletteSettingsStore.Settings settings = CommandPaletteSettingsStore.load();
         maxVisibleItems = settings.maxVisibleItems();
         hideSlashPrefix = settings.hideSlashPrefix();
+        commandDataScopeMode = settings.scopeMode();
 
         loadThemeLibrary();
 
-        categories.clear();
-        categories.addAll(CommandCategoriesStore.load());
-        ensureDefaultCategory();
-        history.clear();
-        history.addAll(CommandHistoryStore.load());
+        reloadScopedCommandData();
         applySlashPreferenceToStoredCommands();
         refreshSuggestions("");
     }
@@ -257,7 +255,7 @@ public class CommandPaletteScreen extends Screen {
         }
 
         if (changed) {
-            CommandCategoriesStore.save(categories);
+                saveCategoriesScoped();
         }
 
         if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) {
@@ -565,8 +563,8 @@ public class CommandPaletteScreen extends Screen {
         List<String> commands = new ArrayList<>(category.commands());
         if (!commands.contains(normalized)) {
             commands.add(normalized);
-            categories.set(categoryIndex, new CommandCategoriesStore.Category(category.name(), commands));
-            CommandCategoriesStore.save(categories);
+              categories.set(categoryIndex, new CommandCategoriesStore.Category(category.name(), commands));
+              saveCategoriesScoped();
         }
     }
 
@@ -673,11 +671,11 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getSettingsRow1Y() {
-        return getSettingsContentY();
+        return getSettingsContentY() + SETTINGS_ROW_HEIGHT + 6;
     }
 
     private int getSettingsRow2Y() {
-        return getSettingsContentY() + SETTINGS_ROW_HEIGHT + 8;
+        return getSettingsRow1Y() + SETTINGS_ROW_HEIGHT + 6;
     }
 
     private int getSettingsControlsRightX() {
@@ -705,6 +703,8 @@ public class CommandPaletteScreen extends Screen {
         int maxLabelWidth = 0;
 
         if (this.textRenderer != null) {
+            maxLabelWidth = Math.max(maxLabelWidth,
+                this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope")));
             maxLabelWidth = Math.max(maxLabelWidth,
                     this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.max_visible")));
             maxLabelWidth = Math.max(maxLabelWidth,
@@ -744,7 +744,63 @@ public class CommandPaletteScreen extends Screen {
 
     private void persistSettings() {
         maxVisibleItems = getConfiguredMaxVisibleItems();
-        CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix));
+        CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix, commandDataScopeMode));
+    }
+
+    private String getActiveCommandDataScopeKey() {
+        if (commandDataScopeMode != CommandPaletteSettingsStore.ScopeMode.PER_SERVER) {
+            return null;
+        }
+        return resolveCurrentServerScopeKey();
+    }
+
+    private String resolveCurrentServerScopeKey() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client != null) {
+            var serverEntry = client.getCurrentServerEntry();
+            if (serverEntry != null && serverEntry.address != null) {
+                String address = serverEntry.address.trim().toLowerCase();
+                if (!address.isEmpty()) {
+                    return "server-" + address;
+                }
+            }
+        }
+        return "local";
+    }
+
+    private void saveCategoriesScoped() {
+        CommandCategoriesStore.save(categories, getActiveCommandDataScopeKey());
+    }
+
+    private void saveHistoryScoped() {
+        CommandHistoryStore.save(history, getActiveCommandDataScopeKey());
+    }
+
+    private void reloadScopedCommandData() {
+        categories.clear();
+        categories.addAll(CommandCategoriesStore.load(getActiveCommandDataScopeKey()));
+        ensureDefaultCategory();
+
+        history.clear();
+        history.addAll(CommandHistoryStore.load(getActiveCommandDataScopeKey()));
+
+        commandHistoryBrowseIndex = -1;
+        commandHistoryBrowseDraft = "";
+        clampSelectionAndScroll();
+    }
+
+    private void toggleCommandDataScopeMode() {
+        commandDataScopeMode = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.GLOBAL
+                ? CommandPaletteSettingsStore.ScopeMode.PER_SERVER
+                : CommandPaletteSettingsStore.ScopeMode.GLOBAL;
+        reloadScopedCommandData();
+        applySlashPreferenceToStoredCommands();
+        if (inputField != null) {
+            inputField.setText(normalizeCommand(inputField.getText()));
+            inputField.setCursorToEnd(false);
+            refreshSuggestions(inputField.getText());
+        }
+        persistSettings();
     }
 
     private void loadThemeLibrary() {
@@ -1227,7 +1283,7 @@ public class CommandPaletteScreen extends Screen {
         }
 
         if (changedCategories) {
-            CommandCategoriesStore.save(categories);
+            saveCategoriesScoped();
         }
 
         List<String> updatedHistory = new ArrayList<>();
@@ -1243,7 +1299,7 @@ public class CommandPaletteScreen extends Screen {
         if (!updatedHistory.equals(history)) {
             history.clear();
             history.addAll(updatedHistory);
-            CommandHistoryStore.save(history);
+            saveHistoryScoped();
         }
     }
 
@@ -1298,7 +1354,7 @@ public class CommandPaletteScreen extends Screen {
         }
 
         categories.set(selectedCategoryIndex, new CommandCategoriesStore.Category(current.name(), commands));
-        CommandCategoriesStore.save(categories);
+        saveCategoriesScoped();
         clampSelectionAndScroll();
     }
 
@@ -1317,7 +1373,7 @@ public class CommandPaletteScreen extends Screen {
         }
 
         categories.set(favoritesIndex, new CommandCategoriesStore.Category(favoritesCategory.name(), commands));
-        CommandCategoriesStore.save(categories);
+        saveCategoriesScoped();
         if (isCategoryView() && selectedCategoryIndex == favoritesIndex) {
             clampSelectionAndScroll();
         }
@@ -1338,7 +1394,7 @@ public class CommandPaletteScreen extends Screen {
         if (selectedCategoryIndex >= 0) {
             selectedCategoryIndex++;
         }
-        CommandCategoriesStore.save(categories);
+        saveCategoriesScoped();
         return 0;
     }
 
@@ -1397,7 +1453,7 @@ public class CommandPaletteScreen extends Screen {
             }
             categories.add(new CommandCategoriesStore.Category(name, new ArrayList<>()));
             targetIndex = categories.size() - 1;
-            CommandCategoriesStore.save(categories);
+            saveCategoriesScoped();
         }
 
         selectedCategoryIndex = targetIndex;
@@ -1495,7 +1551,7 @@ public class CommandPaletteScreen extends Screen {
             selectedCategoryIndex = 0;
         }
 
-        CommandCategoriesStore.save(categories);
+        saveCategoriesScoped();
         clampCategoryScrollIndex();
         ensureCategoryTabVisible(selectedCategoryIndex);
         clampSelectionAndScroll();
@@ -1510,7 +1566,7 @@ public class CommandPaletteScreen extends Screen {
         List<String> commands = new ArrayList<>(current.commands());
         commands.remove(index);
         categories.set(selectedCategoryIndex, new CommandCategoriesStore.Category(current.name(), commands));
-        CommandCategoriesStore.save(categories);
+        saveCategoriesScoped();
         clampSelectionAndScroll();
     }
 
@@ -1525,7 +1581,7 @@ public class CommandPaletteScreen extends Screen {
             history.remove(history.size() - 1);
         }
 
-        CommandHistoryStore.save(history);
+        saveHistoryScoped();
         if (currentView == ViewMode.HISTORY) {
             clampSelectionAndScroll();
         }
@@ -1534,7 +1590,7 @@ public class CommandPaletteScreen extends Screen {
     private void clearHistory() {
         if (history.isEmpty()) return;
         history.clear();
-        CommandHistoryStore.save(history);
+        saveHistoryScoped();
         clampSelectionAndScroll();
     }
 
@@ -1887,7 +1943,7 @@ public class CommandPaletteScreen extends Screen {
     private int computePaletteHeight() {
         int headerHeight = PADDING + NAVBAR_HEIGHT + NAVBAR_GAP + INPUT_HEIGHT + 12 + 1 + 4;
         if (currentView == ViewMode.SETTINGS) {
-            return headerHeight + (SETTINGS_ROW_HEIGHT * 6) + 28 + PADDING;
+            return headerHeight + (SETTINGS_ROW_HEIGHT * 7) + 34 + PADDING;
         }
 
         int listHeight = Math.min(getVisibleEntries().size(), getConfiguredMaxVisibleItems()) * SUGGESTION_ITEM_HEIGHT;
@@ -1932,7 +1988,8 @@ public class CommandPaletteScreen extends Screen {
 
     private void renderSettingsContent(DrawContext ctx, int mouseX, int mouseY) {
         int rowGap = SETTINGS_ROW_HEIGHT + 6;
-        int row1Y = getSettingsContentY();
+        int row0Y = getSettingsContentY();
+        int row1Y = row0Y + rowGap;
         int row2Y = row1Y + rowGap;
         int row3Y = row2Y + rowGap;
         int row4Y = row3Y + rowGap;
@@ -1947,7 +2004,10 @@ public class CommandPaletteScreen extends Screen {
         int incX = getSettingsIncreaseX();
         int switchX = getSettingsSlashSwitchX();
         int switchWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
+        int scopeSwitchX = switchX;
 
+        boolean hoverScopeSwitch = mouseX >= scopeSwitchX && mouseX < scopeSwitchX + switchWidth
+            && mouseY >= row0Y && mouseY < row0Y + NAVBAR_HEIGHT;
         boolean hoverDec = mouseX >= decX && mouseX < decX + SETTINGS_BUTTON_WIDTH
                 && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
         boolean hoverInc = mouseX >= incX && mouseX < incX + SETTINGS_BUTTON_WIDTH
@@ -1955,10 +2015,25 @@ public class CommandPaletteScreen extends Screen {
         boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + switchWidth
                 && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
 
+        int scopeSwitchBg = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER
+            ? COLOR_CATEGORY_ACTIVE
+            : COLOR_BUTTON_BG;
+        if (hoverScopeSwitch) scopeSwitchBg = COLOR_ACCENT;
         int decBg = hoverDec ? COLOR_ACCENT : COLOR_BUTTON_BG;
         int incBg = hoverInc ? COLOR_ACCENT : COLOR_BUTTON_BG;
         int switchBg = hideSlashPrefix ? COLOR_CATEGORY_ACTIVE : COLOR_BUTTON_BG;
         if (hoverSwitch) switchBg = COLOR_ACCENT;
+
+        ctx.drawText(this.textRenderer,
+            Text.translatable("screen.cmdpalette.settings.scope").getString(),
+            labelX, row0Y + 4, 0xFFC5C8C6, false);
+        ctx.fill(scopeSwitchX, row0Y, scopeSwitchX + switchWidth, row0Y + NAVBAR_HEIGHT, scopeSwitchBg);
+        String scopeText = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER
+            ? Text.translatable("screen.cmdpalette.settings.scope.server").getString()
+            : Text.translatable("screen.cmdpalette.settings.scope.global").getString();
+        int scopeTextX = scopeSwitchX + (switchWidth - this.textRenderer.getWidth(scopeText)) / 2;
+        ctx.drawText(this.textRenderer, scopeText, scopeTextX, row0Y + 5,
+            commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER ? COLOR_STAR : COLOR_STAR_OFF, false);
 
         ctx.drawText(this.textRenderer,
                 Text.translatable("screen.cmdpalette.settings.max_visible").getString(),
@@ -2411,7 +2486,8 @@ public class CommandPaletteScreen extends Screen {
 
         if (currentView == ViewMode.SETTINGS) {
             int rowGap = SETTINGS_ROW_HEIGHT + 6;
-            int row3Y = getSettingsContentY() + (rowGap * 2);
+            int row0Y = getSettingsContentY();
+            int row3Y = getSettingsContentY() + (rowGap * 3);
             int row4Y = row3Y + rowGap;
             int row5Y = row4Y + rowGap;
             int row6Y = row5Y + rowGap;
@@ -2419,6 +2495,7 @@ public class CommandPaletteScreen extends Screen {
             int controlsRight = getSettingsControlsRightX();
             int themePrevX = controlsRight - 44;
             int themeNextX = themePrevX + 24;
+            int switchWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
 
             int actionWidth = getThemeActionButtonWidth();
             int actionGap = 4;
@@ -2459,6 +2536,12 @@ public class CommandPaletteScreen extends Screen {
                 return true;
             }
 
+            if (click.x() >= settingsSwitchX && click.x() < settingsSwitchX + switchWidth
+                    && click.y() >= row0Y && click.y() < row0Y + NAVBAR_HEIGHT) {
+                toggleCommandDataScopeMode();
+                return true;
+            }
+
             if (click.x() >= settingsDecX && click.x() < settingsDecX + SETTINGS_BUTTON_WIDTH
                     && click.y() >= row1Y && click.y() < row1Y + NAVBAR_HEIGHT) {
                 maxVisibleItems = Math.max(CommandPaletteSettingsStore.MIN_MAX_VISIBLE_ITEMS,
@@ -2477,7 +2560,7 @@ public class CommandPaletteScreen extends Screen {
                 return true;
             }
 
-            if (click.x() >= settingsSwitchX && click.x() < settingsSwitchX + 56
+            if (click.x() >= settingsSwitchX && click.x() < settingsSwitchX + switchWidth
                     && click.y() >= row2Y && click.y() < row2Y + NAVBAR_HEIGHT) {
                 hideSlashPrefix = !hideSlashPrefix;
                 applySlashPreferenceToStoredCommands();
