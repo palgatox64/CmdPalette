@@ -28,7 +28,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class CommandPaletteScreen extends Screen {
 
-    private static final int PALETTE_WIDTH = 520;
+    private static final int PALETTE_MAX_WIDTH = 520;
+    private static final int PALETTE_MIN_WIDTH = 320;
     private static final int INPUT_HEIGHT = 20;
     private static final int SUGGESTION_ITEM_HEIGHT = 18;
     private static final int MAX_VISIBLE = 12;
@@ -261,8 +262,14 @@ public class CommandPaletteScreen extends Screen {
         return categories.get(selectedCategoryIndex).commands();
     }
 
+    private int getPaletteWidth() {
+        int availableWidth = this.width - (PADDING * 2);
+        int clampedToMax = Math.min(PALETTE_MAX_WIDTH, availableWidth);
+        return Math.max(PALETTE_MIN_WIDTH, clampedToMax);
+    }
+
     private int getInputX() {
-        int paletteX = (this.width - PALETTE_WIDTH) / 2;
+        int paletteX = (this.width - getPaletteWidth()) / 2;
         return paletteX + PADDING;
     }
 
@@ -276,7 +283,7 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getInputWidth() {
-        return PALETTE_WIDTH - PADDING * 2 - STAR_BUTTON_SIZE * 2 - STAR_GAP * 2;
+        return getPaletteWidth() - PADDING * 2 - STAR_BUTTON_SIZE * 2 - STAR_GAP * 2;
     }
 
     private int getHistoryTabX() {
@@ -312,8 +319,9 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getSettingsButtonX() {
-        int paletteX = (this.width - PALETTE_WIDTH) / 2;
-        return paletteX + PALETTE_WIDTH - PADDING - NAVBAR_HEIGHT;
+        int paletteWidth = getPaletteWidth();
+        int paletteX = (this.width - paletteWidth) / 2;
+        return paletteX + paletteWidth - PADDING - NAVBAR_HEIGHT;
     }
 
     private int getCategoryScrollRightX() {
@@ -758,7 +766,8 @@ public class CommandPaletteScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        int paletteX = (this.width - PALETTE_WIDTH) / 2;
+        int paletteWidth = getPaletteWidth();
+        int paletteX = (this.width - paletteWidth) / 2;
         int paletteY = this.height / 5;
         int paletteHeight = computePaletteHeight();
         int navbarY = getNavbarY();
@@ -767,14 +776,14 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(0, 0, this.width, this.height, COLOR_OVERLAY);
 
         ctx.fill(paletteX - 2, paletteY - 2,
-                paletteX + PALETTE_WIDTH + 2, paletteY + paletteHeight + 2, COLOR_SHADOW);
+            paletteX + paletteWidth + 2, paletteY + paletteHeight + 2, COLOR_SHADOW);
         ctx.fill(paletteX, paletteY,
-                paletteX + PALETTE_WIDTH, paletteY + paletteHeight, COLOR_BG);
+            paletteX + paletteWidth, paletteY + paletteHeight, COLOR_BG);
 
-        ctx.fill(paletteX, paletteY, paletteX + PALETTE_WIDTH, paletteY + 2, COLOR_BORDER_TOP);
+        ctx.fill(paletteX, paletteY, paletteX + paletteWidth, paletteY + 2, COLOR_BORDER_TOP);
 
         ctx.fill(paletteX + 4, paletteY + 4,
-            paletteX + PALETTE_WIDTH - 4, inputY + INPUT_HEIGHT + 4, COLOR_INPUT_BG);
+            paletteX + paletteWidth - 4, inputY + INPUT_HEIGHT + 4, COLOR_INPUT_BG);
 
         int historyTabX = getHistoryTabX();
         int favoritesTabX = getFavoritesTabX();
@@ -815,7 +824,7 @@ public class CommandPaletteScreen extends Screen {
         int favoritesTabBg = COLOR_BUTTON_BG;
         int scrollLeftBg = COLOR_BUTTON_BG;
         int scrollRightBg = COLOR_BUTTON_BG;
-        int historyTabBg = currentView == ViewMode.HISTORY ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
+        int historyTabBg = currentView == ViewMode.HISTORY ? COLOR_CATEGORY_ACTIVE : COLOR_BUTTON_BG;
         int actionBg = COLOR_BUTTON_BG;
         int addCategoryBg = isCurrentInputInSelectedCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
         int favoriteBg = isCurrentInputInFavoritesCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
@@ -845,10 +854,11 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(addCategoryX, inputY, addCategoryX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addCategoryBg);
         ctx.fill(favoriteButtonX, inputY, favoriteButtonX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, favoriteBg);
 
+        boolean historyActive = currentView == ViewMode.HISTORY;
         ctx.drawText(this.textRenderer, "↺", historyTabX + 6, navbarY + 5,
-                currentView == ViewMode.HISTORY ? COLOR_STAR : COLOR_STAR_OFF, false);
+            historyActive ? COLOR_STAR : COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, Text.translatable("screen.cmdpalette.tab.history").getString(),
-                historyTabX + 18, navbarY + 5, 0xFFC5C8C6, false);
+            historyTabX + 18, navbarY + 5, historyActive ? COLOR_STAR : 0xFFC5C8C6, false);
 
         if (favoritesTabWidth > 0 && favoritesIndex >= 0 && favoritesIndex < categories.size()) {
             boolean favoritesActive = isCategoryView && selectedCategoryIndex == favoritesIndex;
@@ -933,7 +943,7 @@ public class CommandPaletteScreen extends Screen {
 
         int separatorY = getSeparatorY();
         ctx.fill(paletteX + PADDING, separatorY,
-                paletteX + PALETTE_WIDTH - PADDING, separatorY + 1, COLOR_SEPARATOR);
+            paletteX + paletteWidth - PADDING, separatorY + 1, COLOR_SEPARATOR);
 
         int listStartY = separatorY + 4;
         List<String> entries = getVisibleEntries();
@@ -948,14 +958,14 @@ public class CommandPaletteScreen extends Screen {
             int sy = listStartY + i * SUGGESTION_ITEM_HEIGHT;
 
             boolean selected = idx == selectedIndex;
-            boolean hovered = mouseX >= paletteX + 4 && mouseX <= paletteX + PALETTE_WIDTH - 4
+            boolean hovered = mouseX >= paletteX + 4 && mouseX <= paletteX + paletteWidth - 4
                     && mouseY >= sy && mouseY < sy + SUGGESTION_ITEM_HEIGHT;
 
             if (selected) {
-                ctx.fill(paletteX + 4, sy, paletteX + PALETTE_WIDTH - 4,
+                ctx.fill(paletteX + 4, sy, paletteX + paletteWidth - 4,
                         sy + SUGGESTION_ITEM_HEIGHT, COLOR_SELECTED);
             } else if (hovered) {
-                ctx.fill(paletteX + 4, sy, paletteX + PALETTE_WIDTH - 4,
+                ctx.fill(paletteX + 4, sy, paletteX + paletteWidth - 4,
                         sy + SUGGESTION_ITEM_HEIGHT, COLOR_HOVER);
             }
 
@@ -963,7 +973,7 @@ public class CommandPaletteScreen extends Screen {
             renderSyntaxHighlighted(ctx, entry, paletteX + 12, sy + 4);
 
             if (isCategoryView) {
-                int removeX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
+                int removeX = paletteX + paletteWidth - PADDING - STAR_ROW_SIZE;
                 int removeY = sy + (SUGGESTION_ITEM_HEIGHT - STAR_ROW_SIZE) / 2;
                 boolean hoverRowRemove = mouseX >= removeX && mouseX < removeX + STAR_ROW_SIZE
                         && mouseY >= removeY && mouseY < removeY + STAR_ROW_SIZE;
@@ -985,8 +995,8 @@ public class CommandPaletteScreen extends Screen {
             int trackHeight = MAX_VISIBLE * SUGGESTION_ITEM_HEIGHT;
             int barHeight = Math.max(16, trackHeight * MAX_VISIBLE / currentSize);
             int barY = listStartY + (int) ((float) scrollOffset / currentSize * trackHeight);
-            ctx.fill(paletteX + PALETTE_WIDTH - 6, barY,
-                    paletteX + PALETTE_WIDTH - 3, barY + barHeight, COLOR_SCROLLBAR);
+            ctx.fill(paletteX + paletteWidth - 6, barY,
+                    paletteX + paletteWidth - 3, barY + barHeight, COLOR_SCROLLBAR);
         }
     }
 
@@ -1276,12 +1286,13 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getSuggestionIndexAt(double mouseX, double mouseY) {
-        int paletteX = (this.width - PALETTE_WIDTH) / 2;
+        int paletteWidth = getPaletteWidth();
+        int paletteX = (this.width - paletteWidth) / 2;
         int listStartY = getSeparatorY() + 4;
         int currentSize = getVisibleEntries().size();
         int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
 
-        if (mouseX < paletteX + 4 || mouseX > paletteX + PALETTE_WIDTH - 4) return -1;
+        if (mouseX < paletteX + 4 || mouseX > paletteX + paletteWidth - 4) return -1;
 
         for (int i = 0; i < visibleCount; i++) {
             int sy = listStartY + i * SUGGESTION_ITEM_HEIGHT;
@@ -1295,11 +1306,12 @@ public class CommandPaletteScreen extends Screen {
     private int getCategoryCommandRemoveIndexAt(double mouseX, double mouseY) {
         if (!isCategoryView()) return -1;
 
-        int paletteX = (this.width - PALETTE_WIDTH) / 2;
+        int paletteWidth = getPaletteWidth();
+        int paletteX = (this.width - paletteWidth) / 2;
         int listStartY = getSeparatorY() + 4;
         int currentSize = getSelectedCategoryCommands().size();
         int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
-        int starX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
+        int starX = paletteX + paletteWidth - PADDING - STAR_ROW_SIZE;
 
         for (int i = 0; i < visibleCount; i++) {
             int index = i + scrollOffset;
