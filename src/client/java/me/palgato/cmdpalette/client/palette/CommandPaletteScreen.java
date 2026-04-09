@@ -644,7 +644,7 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getSettingsSlashSwitchX() {
-        return getSettingsControlsRightX() - 56;
+        return getSettingsControlsRightX() - (SETTINGS_BUTTON_WIDTH * 2 + 4);
     }
 
     private int getSettingsLabelX() {
@@ -1866,12 +1866,13 @@ public class CommandPaletteScreen extends Screen {
         int decX = getSettingsDecreaseX();
         int incX = getSettingsIncreaseX();
         int switchX = getSettingsSlashSwitchX();
+        int switchWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
 
         boolean hoverDec = mouseX >= decX && mouseX < decX + SETTINGS_BUTTON_WIDTH
                 && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
         boolean hoverInc = mouseX >= incX && mouseX < incX + SETTINGS_BUTTON_WIDTH
                 && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
-        boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + 56
+        boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + switchWidth
                 && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
 
         int decBg = hoverDec ? COLOR_ACCENT : COLOR_BUTTON_BG;
@@ -1893,9 +1894,9 @@ public class CommandPaletteScreen extends Screen {
         ctx.drawText(this.textRenderer,
                 Text.translatable("screen.cmdpalette.settings.hide_slash").getString(),
             labelX, row2Y + 4, 0xFFC5C8C6, false);
-        ctx.fill(switchX, row2Y, switchX + 56, row2Y + NAVBAR_HEIGHT, switchBg);
+        ctx.fill(switchX, row2Y, switchX + switchWidth, row2Y + NAVBAR_HEIGHT, switchBg);
         String switchText = hideSlashPrefix ? "ON" : "OFF";
-        int switchTextX = switchX + (56 - this.textRenderer.getWidth(switchText)) / 2;
+        int switchTextX = switchX + (switchWidth - this.textRenderer.getWidth(switchText)) / 2;
         ctx.drawText(this.textRenderer, switchText, switchTextX, row2Y + 5,
             hideSlashPrefix ? COLOR_STAR : COLOR_STAR_OFF, false);
 
