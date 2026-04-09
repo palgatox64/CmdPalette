@@ -32,7 +32,8 @@ public class CommandPaletteScreen extends Screen {
     private static final int PALETTE_MIN_WIDTH = 320;
     private static final int INPUT_HEIGHT = 20;
     private static final int SUGGESTION_ITEM_HEIGHT = 18;
-    private static final int MAX_VISIBLE = 12;
+    private static final int SETTINGS_ROW_HEIGHT = 22;
+    private static final int SETTINGS_BUTTON_WIDTH = 20;
     private static final int PADDING = 8;
     private static final int NAVBAR_HEIGHT = 18;
     private static final int NAVBAR_GAP = 6;
@@ -87,6 +88,8 @@ public class CommandPaletteScreen extends Screen {
     private int scrollOffset = 0;
     private int selectedCategoryIndex = -1;
     private int categoryScrollIndex = 0;
+    private int maxVisibleItems = CommandPaletteSettingsStore.DEFAULT_MAX_VISIBLE_ITEMS;
+    private boolean hideSlashPrefix = false;
     private boolean creatingCategoryInput = false;
     private ViewMode currentView = ViewMode.COMMANDS;
 
@@ -96,7 +99,8 @@ public class CommandPaletteScreen extends Screen {
     private enum ViewMode {
         COMMANDS,
         CATEGORY,
-        HISTORY
+        HISTORY,
+        SETTINGS
     }
 
     public CommandPaletteScreen() {
@@ -140,11 +144,16 @@ public class CommandPaletteScreen extends Screen {
         addDrawableChild(categoryInputField);
         setInitialFocus(inputField);
 
+        CommandPaletteSettingsStore.Settings settings = CommandPaletteSettingsStore.load();
+        maxVisibleItems = settings.maxVisibleItems();
+        hideSlashPrefix = settings.hideSlashPrefix();
+
         categories.clear();
         categories.addAll(CommandCategoriesStore.load());
         ensureDefaultCategory();
         history.clear();
         history.addAll(CommandHistoryStore.load());
+        applySlashPreferenceToStoredCommands();
         refreshSuggestions("");
     }
 
@@ -251,8 +260,14 @@ public class CommandPaletteScreen extends Screen {
         return switch (currentView) {
             case CATEGORY -> getSelectedCategoryCommands();
             case HISTORY -> history;
+            case SETTINGS -> List.of();
             default -> suggestions;
         };
+    }
+
+    private int getConfiguredMaxVisibleItems() {
+        return Math.max(CommandPaletteSettingsStore.MIN_MAX_VISIBLE_ITEMS,
+                Math.min(maxVisibleItems, CommandPaletteSettingsStore.MAX_MAX_VISIBLE_ITEMS));
     }
 
     private List<String> getSelectedCategoryCommands() {
@@ -461,11 +476,88 @@ public class CommandPaletteScreen extends Screen {
         return getInputY() + INPUT_HEIGHT + 8;
     }
 
+    private int getSettingsContentY() {
+        return getSeparatorY() + 8;
+    }
+
+    private int getSettingsRow1Y() {
+        return getSettingsContentY();
+    }
+
+    private int getSettingsRow2Y() {
+        return getSettingsContentY() + SETTINGS_ROW_HEIGHT + 8;
+    }
+
+    private int getSettingsDecreaseX() {
+        return getInputX() + getInputWidth() - 88;
+    }
+
+    private int getSettingsIncreaseX() {
+        return getSettingsDecreaseX() + SETTINGS_BUTTON_WIDTH + 4;
+    }
+
+    private int getSettingsSlashSwitchX() {
+        return getInputX() + getInputWidth() - 56;
+    }
+
+    private void persistSettings() {
+        maxVisibleItems = getConfiguredMaxVisibleItems();
+        CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix));
+    }
+
+    private String formatCommandForDisplay(String text) {
+        if (text == null) return "";
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) return "";
+        String noPrefix = trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+        return hideSlashPrefix ? noPrefix : "/" + noPrefix;
+    }
+
+    private void applySlashPreferenceToStoredCommands() {
+        boolean changedCategories = false;
+        for (int i = 0; i < categories.size(); i++) {
+            CommandCategoriesStore.Category category = categories.get(i);
+            List<String> updated = new ArrayList<>();
+            for (String command : category.commands()) {
+                String normalized = normalizeCommand(command);
+                if (!normalized.isBlank()) {
+                    updated.add(normalized);
+                }
+            }
+
+            if (!updated.equals(category.commands())) {
+                categories.set(i, new CommandCategoriesStore.Category(category.name(), updated));
+                changedCategories = true;
+            }
+        }
+
+        if (changedCategories) {
+            CommandCategoriesStore.save(categories);
+        }
+
+        List<String> updatedHistory = new ArrayList<>();
+        for (String command : history) {
+            String normalized = normalizeCommand(command);
+            if (!normalized.isBlank()) {
+                if (!updatedHistory.contains(normalized)) {
+                    updatedHistory.add(normalized);
+                }
+            }
+        }
+
+        if (!updatedHistory.equals(history)) {
+            history.clear();
+            history.addAll(updatedHistory);
+            CommandHistoryStore.save(history);
+        }
+    }
+
     private String normalizeCommand(String text) {
         if (text == null) return "";
         String trimmed = text.trim();
         if (trimmed.isEmpty()) return "";
-        return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+        String noPrefix = trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+        return hideSlashPrefix ? noPrefix : "/" + noPrefix;
     }
 
     private boolean isCurrentInputInSelectedCategory() {
@@ -702,6 +794,7 @@ public class CommandPaletteScreen extends Screen {
     private void clampSelectionAndScroll() {
         List<String> entries = getVisibleEntries();
         int size = entries.size();
+        int maxVisible = getConfiguredMaxVisibleItems();
         if (size == 0) {
             selectedIndex = -1;
             scrollOffset = 0;
@@ -713,7 +806,7 @@ public class CommandPaletteScreen extends Screen {
             selectedIndex = -1;
         }
 
-        int maxScroll = Math.max(0, size - MAX_VISIBLE);
+        int maxScroll = Math.max(0, size - maxVisible);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
     }
 
@@ -730,7 +823,7 @@ public class CommandPaletteScreen extends Screen {
 
         if (raw.isEmpty()) {
             List<String> rootCommands = new ArrayList<>();
-            dispatcher.getRoot().getChildren().forEach(node -> rootCommands.add("/" + node.getName()));
+            dispatcher.getRoot().getChildren().forEach(node -> rootCommands.add(formatCommandForDisplay(node.getName())));
             Collections.sort(rootCommands);
             suggestions.addAll(rootCommands);
             return;
@@ -742,16 +835,17 @@ public class CommandPaletteScreen extends Screen {
         future.thenAccept(result -> {
             List<String> completions = new ArrayList<>();
             for (Suggestion s : result.getList()) {
-                String text = "/" + raw.substring(0, s.getRange().getStart()) + s.getText();
+                String text = raw.substring(0, s.getRange().getStart()) + s.getText();
+                text = formatCommandForDisplay(text);
                 if (!completions.contains(text)) {
                     completions.add(text);
                 }
             }
 
             if (completions.isEmpty()) {
-                String lowerInput = ("/" + raw).toLowerCase();
+                String lowerInput = formatCommandForDisplay(raw).toLowerCase();
                 dispatcher.getRoot().getChildren().forEach(node -> {
-                    String name = "/" + node.getName();
+                    String name = formatCommandForDisplay(node.getName());
                     if (name.toLowerCase().contains(lowerInput)) {
                         completions.add(name);
                     }
@@ -798,6 +892,7 @@ public class CommandPaletteScreen extends Screen {
         int favoriteButtonX = getFavoriteButtonX();
         boolean isHistoryView = currentView == ViewMode.HISTORY;
         boolean isCategoryView = isCategoryView();
+        boolean isSettingsView = currentView == ViewMode.SETTINGS;
         boolean canDeleteCategory = canDeleteSelectedCategory();
         boolean canScrollLeft = canScrollCategoriesLeft();
         boolean canScrollRight = canScrollCategoriesRight();
@@ -837,7 +932,9 @@ public class CommandPaletteScreen extends Screen {
         if (hoverCreateCategory) createCategoryBg = COLOR_ACCENT;
         if (hoverScrollLeft && canScrollLeft) scrollLeftBg = COLOR_ACCENT;
         if (hoverScrollRight && canScrollRight) scrollRightBg = COLOR_ACCENT;
-        if (hoverAction && (isHistoryView || canDeleteCategory)) actionBg = COLOR_ACCENT;
+        if (hoverAction && (isHistoryView || isSettingsView || canDeleteCategory || currentView == ViewMode.COMMANDS)) {
+            actionBg = COLOR_ACCENT;
+        }
         if (hoverAddCategory) addCategoryBg = COLOR_ACCENT;
         if (hoverFavoriteButton) favoriteBg = COLOR_ACCENT;
 
@@ -898,8 +995,10 @@ public class CommandPaletteScreen extends Screen {
             categoryX += categoryWidth + TAB_GAP;
         }
 
-        String actionLabel = isHistoryView ? "✕" : (isCategoryView ? "✕" : "⚙");
-        int actionColor = (isHistoryView || canDeleteCategory) ? COLOR_STAR_OFF : 0xFF555555;
+        String actionLabel = (isHistoryView || isCategoryView || isSettingsView) ? "✕" : "⚙";
+        int actionColor = (isHistoryView || isSettingsView || currentView == ViewMode.COMMANDS || canDeleteCategory)
+            ? COLOR_STAR_OFF
+            : 0xFF555555;
         ctx.drawText(this.textRenderer, actionLabel, actionX + 6, navbarY + 5, actionColor, false);
         ctx.drawText(this.textRenderer, "★+", addCategoryX + 3, inputY + 6,
             isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
@@ -925,11 +1024,13 @@ public class CommandPaletteScreen extends Screen {
         } else if (hoverAction) {
             String tooltipKey = isHistoryView
                     ? "screen.cmdpalette.tooltip.clear_history"
-                    : (isCategoryView
-                        ? (canDeleteCategory
-                            ? "screen.cmdpalette.tooltip.delete_category"
-                            : "screen.cmdpalette.tooltip.delete_category_disabled")
-                        : "screen.cmdpalette.tooltip.settings_soon");
+                    : (isSettingsView
+                        ? "screen.cmdpalette.tooltip.close_settings"
+                        : (isCategoryView
+                            ? (canDeleteCategory
+                                ? "screen.cmdpalette.tooltip.delete_category"
+                                : "screen.cmdpalette.tooltip.delete_category_disabled")
+                            : "screen.cmdpalette.tooltip.open_settings"));
             ctx.drawTooltip(this.textRenderer, Text.translatable(tooltipKey), mouseX, mouseY);
         } else if (hoverCreateCategory) {
             ctx.drawTooltip(this.textRenderer,
@@ -945,10 +1046,16 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(paletteX + PADDING, separatorY,
             paletteX + paletteWidth - PADDING, separatorY + 1, COLOR_SEPARATOR);
 
+        if (isSettingsView) {
+            renderSettingsContent(ctx, mouseX, mouseY);
+            return;
+        }
+
         int listStartY = separatorY + 4;
         List<String> entries = getVisibleEntries();
         int currentSize = entries.size();
-        int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
+        int maxVisible = getConfiguredMaxVisibleItems();
+        int visibleCount = Math.min(currentSize - scrollOffset, maxVisible);
         boolean hoverCategoryRowRemove = false;
 
         for (int i = 0; i < visibleCount; i++) {
@@ -991,9 +1098,9 @@ public class CommandPaletteScreen extends Screen {
                     mouseX, mouseY);
         }
 
-        if (currentSize > MAX_VISIBLE) {
-            int trackHeight = MAX_VISIBLE * SUGGESTION_ITEM_HEIGHT;
-            int barHeight = Math.max(16, trackHeight * MAX_VISIBLE / currentSize);
+        if (currentSize > maxVisible) {
+            int trackHeight = maxVisible * SUGGESTION_ITEM_HEIGHT;
+            int barHeight = Math.max(16, trackHeight * maxVisible / currentSize);
             int barY = listStartY + (int) ((float) scrollOffset / currentSize * trackHeight);
             ctx.fill(paletteX + paletteWidth - 6, barY,
                     paletteX + paletteWidth - 3, barY + barHeight, COLOR_SCROLLBAR);
@@ -1002,9 +1109,52 @@ public class CommandPaletteScreen extends Screen {
 
     private int computePaletteHeight() {
         int headerHeight = PADDING + NAVBAR_HEIGHT + NAVBAR_GAP + INPUT_HEIGHT + 12 + 1 + 4;
-        int listHeight = Math.min(getVisibleEntries().size(), MAX_VISIBLE) * SUGGESTION_ITEM_HEIGHT;
+        if (currentView == ViewMode.SETTINGS) {
+            return headerHeight + (SETTINGS_ROW_HEIGHT * 2) + 8 + PADDING;
+        }
+
+        int listHeight = Math.min(getVisibleEntries().size(), getConfiguredMaxVisibleItems()) * SUGGESTION_ITEM_HEIGHT;
         return headerHeight + listHeight + PADDING;
     }
+
+        private void renderSettingsContent(DrawContext ctx, int mouseX, int mouseY) {
+        int row1Y = getSettingsRow1Y();
+        int row2Y = getSettingsRow2Y();
+
+        int decX = getSettingsDecreaseX();
+        int incX = getSettingsIncreaseX();
+        int switchX = getSettingsSlashSwitchX();
+
+        boolean hoverDec = mouseX >= decX && mouseX < decX + SETTINGS_BUTTON_WIDTH
+            && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
+        boolean hoverInc = mouseX >= incX && mouseX < incX + SETTINGS_BUTTON_WIDTH
+            && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
+        boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + 56
+            && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
+
+        int decBg = hoverDec ? COLOR_ACCENT : COLOR_BUTTON_BG;
+        int incBg = hoverInc ? COLOR_ACCENT : COLOR_BUTTON_BG;
+        int switchBg = hideSlashPrefix ? COLOR_CATEGORY_ACTIVE : COLOR_BUTTON_BG;
+        if (hoverSwitch) switchBg = COLOR_ACCENT;
+
+        ctx.drawText(this.textRenderer,
+            Text.translatable("screen.cmdpalette.settings.max_visible").getString(),
+            getInputX(), row1Y + 4, 0xFFC5C8C6, false);
+
+        ctx.fill(decX, row1Y, decX + SETTINGS_BUTTON_WIDTH, row1Y + NAVBAR_HEIGHT, decBg);
+        ctx.fill(incX, row1Y, incX + SETTINGS_BUTTON_WIDTH, row1Y + NAVBAR_HEIGHT, incBg);
+        ctx.drawText(this.textRenderer, "-", decX + 7, row1Y + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, "+", incX + 7, row1Y + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, String.valueOf(getConfiguredMaxVisibleItems()), incX + SETTINGS_BUTTON_WIDTH + 8,
+            row1Y + 5, COLOR_STAR, false);
+
+        ctx.drawText(this.textRenderer,
+            Text.translatable("screen.cmdpalette.settings.hide_slash").getString(),
+            getInputX(), row2Y + 4, 0xFFC5C8C6, false);
+        ctx.fill(switchX, row2Y, switchX + 56, row2Y + NAVBAR_HEIGHT, switchBg);
+        ctx.drawText(this.textRenderer, hideSlashPrefix ? "ON" : "OFF", switchX + 18, row2Y + 5,
+            hideSlashPrefix ? COLOR_STAR : COLOR_STAR_OFF, false);
+        }
 
     private void renderSyntaxHighlighted(DrawContext ctx, String command, int x, int y) {
         if (command == null || command.isEmpty()) return;
@@ -1081,6 +1231,14 @@ public class CommandPaletteScreen extends Screen {
             return true;
         }
 
+        if (currentView == ViewMode.SETTINGS) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                setView(ViewMode.COMMANDS);
+                return true;
+            }
+            return true;
+        }
+
         switch (keyCode) {
             case GLFW.GLFW_KEY_TAB -> {
                 applySelectedSuggestion();
@@ -1111,19 +1269,23 @@ public class CommandPaletteScreen extends Screen {
         if (creatingCategoryInput) {
             return categoryInputField.charTyped(charInput);
         }
+        if (currentView == ViewMode.SETTINGS) {
+            return true;
+        }
         return super.charTyped(charInput);
     }
 
     private void moveSelection(int direction) {
         List<String> entries = getVisibleEntries();
+        int maxVisible = getConfiguredMaxVisibleItems();
         if (entries.isEmpty()) return;
 
         selectedIndex = Math.max(0, Math.min(selectedIndex + direction, entries.size() - 1));
 
         if (selectedIndex < scrollOffset) {
             scrollOffset = selectedIndex;
-        } else if (selectedIndex >= scrollOffset + MAX_VISIBLE) {
-            scrollOffset = selectedIndex - MAX_VISIBLE + 1;
+        } else if (selectedIndex >= scrollOffset + maxVisible) {
+            scrollOffset = selectedIndex - maxVisible + 1;
         }
     }
 
@@ -1144,6 +1306,11 @@ public class CommandPaletteScreen extends Screen {
     public boolean mouseClicked(Click click, boolean bl) {
         int navbarY = getNavbarY();
         int inputY = getInputY();
+        int row1Y = getSettingsRow1Y();
+        int row2Y = getSettingsRow2Y();
+        int settingsDecX = getSettingsDecreaseX();
+        int settingsIncX = getSettingsIncreaseX();
+        int settingsSwitchX = getSettingsSlashSwitchX();
         int historyTabX = getHistoryTabX();
         int favoritesTabX = getFavoritesTabX();
         int favoritesTabWidth = getFavoritesTabWidth();
@@ -1222,10 +1389,52 @@ public class CommandPaletteScreen extends Screen {
                 clearHistory();
                 return true;
             }
+            if (currentView == ViewMode.SETTINGS) {
+                setView(ViewMode.COMMANDS);
+                return true;
+            }
+            if (currentView == ViewMode.COMMANDS) {
+                setView(ViewMode.SETTINGS);
+                return true;
+            }
             if (canDeleteSelectedCategory()) {
                 deleteSelectedCategory();
                 return true;
             }
+        }
+
+        if (currentView == ViewMode.SETTINGS) {
+            if (click.x() >= settingsDecX && click.x() < settingsDecX + SETTINGS_BUTTON_WIDTH
+                    && click.y() >= row1Y && click.y() < row1Y + NAVBAR_HEIGHT) {
+                maxVisibleItems = Math.max(CommandPaletteSettingsStore.MIN_MAX_VISIBLE_ITEMS,
+                        getConfiguredMaxVisibleItems() - 1);
+                clampSelectionAndScroll();
+                persistSettings();
+                return true;
+            }
+
+            if (click.x() >= settingsIncX && click.x() < settingsIncX + SETTINGS_BUTTON_WIDTH
+                    && click.y() >= row1Y && click.y() < row1Y + NAVBAR_HEIGHT) {
+                maxVisibleItems = Math.min(CommandPaletteSettingsStore.MAX_MAX_VISIBLE_ITEMS,
+                        getConfiguredMaxVisibleItems() + 1);
+                clampSelectionAndScroll();
+                persistSettings();
+                return true;
+            }
+
+            if (click.x() >= settingsSwitchX && click.x() < settingsSwitchX + 56
+                    && click.y() >= row2Y && click.y() < row2Y + NAVBAR_HEIGHT) {
+                hideSlashPrefix = !hideSlashPrefix;
+                applySlashPreferenceToStoredCommands();
+                inputField.setText(normalizeCommand(inputField.getText()));
+                inputField.setCursorToEnd(false);
+                refreshSuggestions(inputField.getText());
+                clampSelectionAndScroll();
+                persistSettings();
+                return true;
+            }
+
+            return true;
         }
 
         if (click.x() >= addCategoryX && click.x() < addCategoryX + STAR_BUTTON_SIZE
@@ -1258,6 +1467,7 @@ public class CommandPaletteScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY,
                                   double horizontalAmount, double verticalAmount) {
+        int maxVisible = getConfiguredMaxVisibleItems();
         int navbarY = getNavbarY();
         int categoriesStartX = getCategoryScrollLeftX();
         int categoriesEndX = getCategoryScrollRightX() + NAVBAR_HEIGHT;
@@ -1278,8 +1488,8 @@ public class CommandPaletteScreen extends Screen {
         }
 
         int currentSize = getVisibleEntries().size();
-        if (currentSize > MAX_VISIBLE) {
-            int maxScroll = currentSize - MAX_VISIBLE;
+        if (currentSize > maxVisible) {
+            int maxScroll = currentSize - maxVisible;
             scrollOffset = Math.max(0, Math.min(scrollOffset - (int) verticalAmount, maxScroll));
         }
         return true;
@@ -1290,7 +1500,7 @@ public class CommandPaletteScreen extends Screen {
         int paletteX = (this.width - paletteWidth) / 2;
         int listStartY = getSeparatorY() + 4;
         int currentSize = getVisibleEntries().size();
-        int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
+        int visibleCount = Math.min(currentSize - scrollOffset, getConfiguredMaxVisibleItems());
 
         if (mouseX < paletteX + 4 || mouseX > paletteX + paletteWidth - 4) return -1;
 
@@ -1310,7 +1520,7 @@ public class CommandPaletteScreen extends Screen {
         int paletteX = (this.width - paletteWidth) / 2;
         int listStartY = getSeparatorY() + 4;
         int currentSize = getSelectedCategoryCommands().size();
-        int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
+        int visibleCount = Math.min(currentSize - scrollOffset, getConfiguredMaxVisibleItems());
         int starX = paletteX + paletteWidth - PADDING - STAR_ROW_SIZE;
 
         for (int i = 0; i < visibleCount; i++) {

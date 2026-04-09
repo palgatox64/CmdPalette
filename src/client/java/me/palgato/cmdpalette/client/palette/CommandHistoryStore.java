@@ -68,7 +68,7 @@ public final class CommandHistoryStore {
         if (text == null) return "";
         String trimmed = text.trim();
         if (trimmed.isEmpty()) return "";
-        return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+        return trimmed;
     }
 
     private static final class HistoryPayload {

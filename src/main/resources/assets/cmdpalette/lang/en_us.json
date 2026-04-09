@@ -14,5 +14,9 @@
   "screen.cmdpalette.tooltip.add_to_favorites": "Add current command to favorites",
   "screen.cmdpalette.tooltip.remove_from_favorites": "Remove current command from favorites",
   "screen.cmdpalette.tooltip.remove_row_category": "Delete this command from category",
-  "screen.cmdpalette.tooltip.settings_soon": "Settings (coming soon)"
+  "screen.cmdpalette.tooltip.settings_soon": "Settings (coming soon)",
+  "screen.cmdpalette.tooltip.open_settings": "Open settings",
+  "screen.cmdpalette.tooltip.close_settings": "Close settings",
+  "screen.cmdpalette.settings.max_visible": "Max visible items",
+  "screen.cmdpalette.settings.hide_slash": "Hide and ignore / prefix"
 }

@@ -107,7 +107,7 @@ public final class CommandCategoriesStore {
         if (command == null) return "";
         String trimmed = command.trim();
         if (trimmed.isEmpty()) return "";
-        return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+        return trimmed;
     }
 
     public record Category(String name, List<String> commands) {

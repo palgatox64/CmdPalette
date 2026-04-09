@@ -14,5 +14,9 @@
   "screen.cmdpalette.tooltip.add_to_favorites": "Agregar el comando actual a favoritos",
   "screen.cmdpalette.tooltip.remove_from_favorites": "Quitar el comando actual de favoritos",
   "screen.cmdpalette.tooltip.remove_row_category": "Eliminar este comando de la categoría",
-  "screen.cmdpalette.tooltip.settings_soon": "Configuración (próximamente)"
+  "screen.cmdpalette.tooltip.settings_soon": "Configuración (próximamente)",
+  "screen.cmdpalette.tooltip.open_settings": "Abrir configuración",
+  "screen.cmdpalette.tooltip.close_settings": "Cerrar configuración",
+  "screen.cmdpalette.settings.max_visible": "Máximo de items visibles",
+  "screen.cmdpalette.settings.hide_slash": "Ocultar e ignorar prefijo /"
 }
