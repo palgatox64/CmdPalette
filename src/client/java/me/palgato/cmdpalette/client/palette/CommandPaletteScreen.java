@@ -23,6 +23,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -48,29 +49,29 @@ public class CommandPaletteScreen extends Screen {
     private static final int CATEGORY_PICKER_ROW_HEIGHT = 18;
     private static final int MAX_HISTORY_ENTRIES = 100;
 
-    private static final int COLOR_OVERLAY = 0xB0000000;
-    private static final int COLOR_BG = 0xFF1A1A1A;
-    private static final int COLOR_SHADOW = 0xFF0A0A0A;
-    private static final int COLOR_ACCENT = 0xFF4A4A4A;
-    private static final int COLOR_INPUT_BG = 0xFF242424;
-    private static final int COLOR_SEPARATOR = 0xFF333333;
-    private static final int COLOR_HOVER = 0xFF2E2E2E;
-    private static final int COLOR_SELECTED = 0xFF3A3A3A;
-    private static final int COLOR_SCROLLBAR = 0xFF555555;
-    private static final int COLOR_BORDER_TOP = 0xFF505050;
-    private static final int COLOR_STAR = 0xFFFFD75E;
-    private static final int COLOR_STAR_OFF = 0xFF808080;
-    private static final int COLOR_BUTTON_BG = 0xFF2A2A2A;
-    private static final int COLOR_BUTTON_ACTIVE = 0xFF3B3B3B;
-    private static final int COLOR_CATEGORY_ACTIVE = 0xFF4A3F2A;
+    private int COLOR_OVERLAY = 0xB0000000;
+    private int COLOR_BG = 0xFF1A1A1A;
+    private int COLOR_SHADOW = 0xFF0A0A0A;
+    private int COLOR_ACCENT = 0xFF4A4A4A;
+    private int COLOR_INPUT_BG = 0xFF242424;
+    private int COLOR_SEPARATOR = 0xFF333333;
+    private int COLOR_HOVER = 0xFF2E2E2E;
+    private int COLOR_SELECTED = 0xFF3A3A3A;
+    private int COLOR_SCROLLBAR = 0xFF555555;
+    private int COLOR_BORDER_TOP = 0xFF505050;
+    private int COLOR_STAR = 0xFFFFD75E;
+    private int COLOR_STAR_OFF = 0xFF808080;
+    private int COLOR_BUTTON_BG = 0xFF2A2A2A;
+    private int COLOR_BUTTON_ACTIVE = 0xFF3B3B3B;
+    private int COLOR_CATEGORY_ACTIVE = 0xFF4A3F2A;
 
-    private static final int COLOR_SLASH = 0xFF888888;
-    private static final int COLOR_COMMAND = 0xFF5AF5E2;
-    private static final int COLOR_SELECTOR = 0xFFFFE066;
-    private static final int COLOR_COORDINATE = 0xFFFF6B6B;
-    private static final int COLOR_STRING = 0xFFFFB347;
-    private static final int COLOR_NUMBER = 0xFF98E66B;
-    private static final int COLOR_BOOLEAN = 0xFF7EC8E3;
+    private int COLOR_SLASH = 0xFF888888;
+    private int COLOR_COMMAND = 0xFF5AF5E2;
+    private int COLOR_SELECTOR = 0xFFFFE066;
+    private int COLOR_COORDINATE = 0xFFFF6B6B;
+    private int COLOR_STRING = 0xFFFFB347;
+    private int COLOR_NUMBER = 0xFF98E66B;
+    private int COLOR_BOOLEAN = 0xFF7EC8E3;
 
     private static final int[] POSITION_PALETTE = {
             0xFFE897FF,
@@ -83,6 +84,8 @@ public class CommandPaletteScreen extends Screen {
 
     private TextFieldWidget inputField;
     private TextFieldWidget categoryInputField;
+    private TextFieldWidget themeRenameInputField;
+    private TextFieldWidget themeHexInputField;
     private final List<String> suggestions = new CopyOnWriteArrayList<>();
     private final List<CommandCategoriesStore.Category> categories = new CopyOnWriteArrayList<>();
     private final List<String> history = new CopyOnWriteArrayList<>();
@@ -91,9 +94,13 @@ public class CommandPaletteScreen extends Screen {
     private int selectedCategoryIndex = -1;
     private int categoryScrollIndex = 0;
     private boolean categoryPickerOpen = false;
+    private final List<CommandPaletteThemeStore.ThemePreset> themeLibrary = new ArrayList<>();
+    private int selectedThemeIndex = 0;
+    private int selectedThemeAspectIndex = 0;
     private int maxVisibleItems = CommandPaletteSettingsStore.DEFAULT_MAX_VISIBLE_ITEMS;
     private boolean hideSlashPrefix = false;
     private boolean creatingCategoryInput = false;
+    private boolean renamingTheme = false;
     private ViewMode currentView = ViewMode.COMMANDS;
 
     private String cachedColorText = "";
@@ -104,6 +111,37 @@ public class CommandPaletteScreen extends Screen {
         CATEGORY,
         HISTORY,
         SETTINGS
+    }
+
+    private enum ThemeAspect {
+        OVERLAY("screen.cmdpalette.theme.aspect.overlay"),
+        BG("screen.cmdpalette.theme.aspect.bg"),
+        SHADOW("screen.cmdpalette.theme.aspect.shadow"),
+        ACCENT("screen.cmdpalette.theme.aspect.accent"),
+        INPUT_BG("screen.cmdpalette.theme.aspect.input_bg"),
+        SEPARATOR("screen.cmdpalette.theme.aspect.separator"),
+        HOVER("screen.cmdpalette.theme.aspect.hover"),
+        SELECTED("screen.cmdpalette.theme.aspect.selected"),
+        SCROLLBAR("screen.cmdpalette.theme.aspect.scrollbar"),
+        BORDER_TOP("screen.cmdpalette.theme.aspect.border_top"),
+        STAR("screen.cmdpalette.theme.aspect.star"),
+        STAR_OFF("screen.cmdpalette.theme.aspect.star_off"),
+        BUTTON_BG("screen.cmdpalette.theme.aspect.button_bg"),
+        BUTTON_ACTIVE("screen.cmdpalette.theme.aspect.button_active"),
+        CATEGORY_ACTIVE("screen.cmdpalette.theme.aspect.category_active"),
+        SLASH("screen.cmdpalette.theme.aspect.slash"),
+        COMMAND("screen.cmdpalette.theme.aspect.command"),
+        SELECTOR("screen.cmdpalette.theme.aspect.selector"),
+        COORDINATE("screen.cmdpalette.theme.aspect.coordinate"),
+        STRING("screen.cmdpalette.theme.aspect.string"),
+        NUMBER("screen.cmdpalette.theme.aspect.number"),
+        BOOLEAN("screen.cmdpalette.theme.aspect.boolean");
+
+        private final String translationKey;
+
+        ThemeAspect(String translationKey) {
+            this.translationKey = translationKey;
+        }
     }
 
     public CommandPaletteScreen() {
@@ -143,13 +181,43 @@ public class CommandPaletteScreen extends Screen {
         categoryInputField.setEditableColor(0xFFC5C8C6);
         categoryInputField.setVisible(false);
 
+        themeRenameInputField = new TextFieldWidget(
+            this.textRenderer,
+            getInputX() + 80,
+            getSettingsContentY() + (SETTINGS_ROW_HEIGHT + 6) * 2,
+            Math.max(40, getInputWidth() - 170),
+            NAVBAR_HEIGHT,
+            Text.empty()
+        );
+        themeRenameInputField.setMaxLength(32);
+        themeRenameInputField.setDrawsBackground(true);
+        themeRenameInputField.setEditableColor(0xFFC5C8C6);
+        themeRenameInputField.setVisible(false);
+
+        themeHexInputField = new TextFieldWidget(
+            this.textRenderer,
+            getSettingsValueX() + 34,
+            getSettingsContentY() + (SETTINGS_ROW_HEIGHT + 6) * 5,
+            92,
+            NAVBAR_HEIGHT,
+            Text.empty()
+        );
+        themeHexInputField.setMaxLength(9);
+        themeHexInputField.setDrawsBackground(true);
+        themeHexInputField.setEditableColor(0xFFC5C8C6);
+        themeHexInputField.setVisible(false);
+
         addDrawableChild(inputField);
         addDrawableChild(categoryInputField);
+        addDrawableChild(themeRenameInputField);
+        addDrawableChild(themeHexInputField);
         setInitialFocus(inputField);
 
         CommandPaletteSettingsStore.Settings settings = CommandPaletteSettingsStore.load();
         maxVisibleItems = settings.maxVisibleItems();
         hideSlashPrefix = settings.hideSlashPrefix();
+
+        loadThemeLibrary();
 
         categories.clear();
         categories.addAll(CommandCategoriesStore.load());
@@ -551,8 +619,12 @@ public class CommandPaletteScreen extends Screen {
         return getSettingsContentY() + SETTINGS_ROW_HEIGHT + 8;
     }
 
+    private int getSettingsControlsRightX() {
+        return getInputX() + getInputWidth() - 8;
+    }
+
     private int getSettingsDecreaseX() {
-        return getInputX() + getInputWidth() - 88;
+        return getSettingsControlsRightX() - (SETTINGS_BUTTON_WIDTH * 2 + 4);
     }
 
     private int getSettingsIncreaseX() {
@@ -560,12 +632,382 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private int getSettingsSlashSwitchX() {
-        return getInputX() + getInputWidth() - 56;
+        return getSettingsControlsRightX() - 56;
+    }
+
+    private int getSettingsLabelX() {
+        return getInputX();
+    }
+
+    private int getSettingsValueX() {
+        int labelPadding = 18;
+        int maxLabelWidth = 0;
+
+        if (this.textRenderer != null) {
+            maxLabelWidth = Math.max(maxLabelWidth,
+                    this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.max_visible")));
+            maxLabelWidth = Math.max(maxLabelWidth,
+                    this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.hide_slash")));
+            maxLabelWidth = Math.max(maxLabelWidth,
+                    this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.theme")));
+            maxLabelWidth = Math.max(maxLabelWidth,
+                    this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.aspect")));
+        }
+
+        return getSettingsLabelX() + maxLabelWidth + labelPadding;
     }
 
     private void persistSettings() {
         maxVisibleItems = getConfiguredMaxVisibleItems();
         CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix));
+    }
+
+    private void loadThemeLibrary() {
+        CommandPaletteThemeStore.ThemeLibrary loaded = CommandPaletteThemeStore.load();
+        themeLibrary.clear();
+        themeLibrary.addAll(loaded.themes());
+
+        selectedThemeIndex = 0;
+        for (int i = 0; i < themeLibrary.size(); i++) {
+            if (themeLibrary.get(i).id().equals(loaded.selectedThemeId())) {
+                selectedThemeIndex = i;
+                break;
+            }
+        }
+
+        selectedThemeAspectIndex = Math.max(0, Math.min(selectedThemeAspectIndex, ThemeAspect.values().length - 1));
+        applyActiveTheme();
+    }
+
+    private void saveThemeLibrary() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return;
+        CommandPaletteThemeStore.save(new CommandPaletteThemeStore.ThemeLibrary(new ArrayList<>(themeLibrary), active.id()));
+    }
+
+    private CommandPaletteThemeStore.ThemePreset getActiveTheme() {
+        if (themeLibrary.isEmpty()) return null;
+        selectedThemeIndex = Math.max(0, Math.min(selectedThemeIndex, themeLibrary.size() - 1));
+        return themeLibrary.get(selectedThemeIndex);
+    }
+
+    private boolean isActiveThemeEditable() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        return active != null && active.editable();
+    }
+
+    private void applyThemeColors(CommandPaletteThemeStore.ThemeColors colors) {
+        COLOR_OVERLAY = colors.overlay();
+        COLOR_BG = colors.bg();
+        COLOR_SHADOW = colors.shadow();
+        COLOR_ACCENT = colors.accent();
+        COLOR_INPUT_BG = colors.inputBg();
+        COLOR_SEPARATOR = colors.separator();
+        COLOR_HOVER = colors.hover();
+        COLOR_SELECTED = colors.selected();
+        COLOR_SCROLLBAR = colors.scrollbar();
+        COLOR_BORDER_TOP = colors.borderTop();
+        COLOR_STAR = colors.star();
+        COLOR_STAR_OFF = colors.starOff();
+        COLOR_BUTTON_BG = colors.buttonBg();
+        COLOR_BUTTON_ACTIVE = colors.buttonActive();
+        COLOR_CATEGORY_ACTIVE = colors.categoryActive();
+        COLOR_SLASH = colors.slash();
+        COLOR_COMMAND = colors.command();
+        COLOR_SELECTOR = colors.selector();
+        COLOR_COORDINATE = colors.coordinate();
+        COLOR_STRING = colors.string();
+        COLOR_NUMBER = colors.number();
+        COLOR_BOOLEAN = colors.bool();
+    }
+
+    private void applyActiveTheme() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) {
+            applyThemeColors(CommandPaletteThemeStore.defaultTheme().colors());
+            return;
+        }
+        applyThemeColors(active.colors());
+        syncThemeHexInputFromActiveAspect();
+    }
+
+    private void selectTheme(int delta) {
+        if (themeLibrary.isEmpty()) return;
+        selectedThemeIndex = (selectedThemeIndex + delta + themeLibrary.size()) % themeLibrary.size();
+        applyActiveTheme();
+        saveThemeLibrary();
+    }
+
+    private void createNewTheme() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        CommandPaletteThemeStore.ThemeColors baseColors = active == null
+                ? CommandPaletteThemeStore.defaultTheme().colors()
+                : active.colors();
+
+        String name = "Theme " + (themeLibrary.size());
+        CommandPaletteThemeStore.ThemePreset preset = new CommandPaletteThemeStore.ThemePreset(
+                "theme-" + UUID.randomUUID(),
+                name,
+                true,
+                baseColors
+        );
+
+        themeLibrary.add(preset);
+        selectedThemeIndex = themeLibrary.size() - 1;
+        applyActiveTheme();
+        saveThemeLibrary();
+    }
+
+    private void deleteActiveTheme() {
+        if (!isActiveThemeEditable()) return;
+        if (themeLibrary.size() <= 1) return;
+
+        themeLibrary.remove(selectedThemeIndex);
+        selectedThemeIndex = Math.max(0, Math.min(selectedThemeIndex, themeLibrary.size() - 1));
+        applyActiveTheme();
+        saveThemeLibrary();
+    }
+
+    private void startThemeRename() {
+        if (!isActiveThemeEditable()) return;
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return;
+
+        renamingTheme = true;
+        themeRenameInputField.setText(active.name());
+        themeRenameInputField.setCursorToEnd(false);
+        themeRenameInputField.setVisible(true);
+        inputField.setFocused(false);
+        themeRenameInputField.setFocused(true);
+        setFocused(themeRenameInputField);
+    }
+
+    private void cancelThemeRename() {
+        renamingTheme = false;
+        themeRenameInputField.setFocused(false);
+        themeRenameInputField.setVisible(false);
+        inputField.setFocused(true);
+        setFocused(inputField);
+    }
+
+    private void commitThemeRename() {
+        if (!renamingTheme) return;
+        if (!isActiveThemeEditable()) {
+            cancelThemeRename();
+            return;
+        }
+
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) {
+            cancelThemeRename();
+            return;
+        }
+
+        String raw = themeRenameInputField.getText();
+        String name = raw == null ? "" : raw.trim();
+        if (name.isBlank()) {
+            name = active.name();
+        }
+        if (name.length() > 32) {
+            name = name.substring(0, 32);
+        }
+
+        themeLibrary.set(selectedThemeIndex,
+                new CommandPaletteThemeStore.ThemePreset(active.id(), name, active.editable(), active.colors()));
+        saveThemeLibrary();
+        cancelThemeRename();
+    }
+
+    private void exportActiveTheme() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return;
+        CommandPaletteThemeStore.exportTheme(active);
+    }
+
+    private void importTheme() {
+        CommandPaletteThemeStore.ThemePreset imported = CommandPaletteThemeStore.importTheme();
+        if (imported == null) return;
+
+        themeLibrary.add(imported);
+        selectedThemeIndex = themeLibrary.size() - 1;
+        applyActiveTheme();
+        saveThemeLibrary();
+    }
+
+    private ThemeAspect getSelectedThemeAspect() {
+        ThemeAspect[] aspects = ThemeAspect.values();
+        selectedThemeAspectIndex = Math.max(0, Math.min(selectedThemeAspectIndex, aspects.length - 1));
+        return aspects[selectedThemeAspectIndex];
+    }
+
+    private void selectThemeAspect(int delta) {
+        ThemeAspect[] aspects = ThemeAspect.values();
+        selectedThemeAspectIndex = (selectedThemeAspectIndex + delta + aspects.length) % aspects.length;
+        syncThemeHexInputFromActiveAspect();
+    }
+
+    private int getAspectColor(CommandPaletteThemeStore.ThemeColors colors, ThemeAspect aspect) {
+        return switch (aspect) {
+            case OVERLAY -> colors.overlay();
+            case BG -> colors.bg();
+            case SHADOW -> colors.shadow();
+            case ACCENT -> colors.accent();
+            case INPUT_BG -> colors.inputBg();
+            case SEPARATOR -> colors.separator();
+            case HOVER -> colors.hover();
+            case SELECTED -> colors.selected();
+            case SCROLLBAR -> colors.scrollbar();
+            case BORDER_TOP -> colors.borderTop();
+            case STAR -> colors.star();
+            case STAR_OFF -> colors.starOff();
+            case BUTTON_BG -> colors.buttonBg();
+            case BUTTON_ACTIVE -> colors.buttonActive();
+            case CATEGORY_ACTIVE -> colors.categoryActive();
+            case SLASH -> colors.slash();
+            case COMMAND -> colors.command();
+            case SELECTOR -> colors.selector();
+            case COORDINATE -> colors.coordinate();
+            case STRING -> colors.string();
+            case NUMBER -> colors.number();
+            case BOOLEAN -> colors.bool();
+        };
+    }
+
+    private CommandPaletteThemeStore.ThemeColors withAspectColor(CommandPaletteThemeStore.ThemeColors colors, ThemeAspect aspect, int value) {
+        int color = value;
+        return switch (aspect) {
+            case OVERLAY -> new CommandPaletteThemeStore.ThemeColors(color, colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case BG -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), color, colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SHADOW -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), color, colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case ACCENT -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), color, colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case INPUT_BG -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), color, colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SEPARATOR -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), color, colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case HOVER -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), color, colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SELECTED -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), color, colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SCROLLBAR -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), color, colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case BORDER_TOP -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), color, colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case STAR -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), color, colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case STAR_OFF -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), color, colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case BUTTON_BG -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), color, colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case BUTTON_ACTIVE -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), color, colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case CATEGORY_ACTIVE -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), color, colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SLASH -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), color, colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case COMMAND -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), color, colors.selector(), colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case SELECTOR -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), color, colors.coordinate(), colors.string(), colors.number(), colors.bool());
+            case COORDINATE -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), color, colors.string(), colors.number(), colors.bool());
+            case STRING -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), color, colors.number(), colors.bool());
+            case NUMBER -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), color, colors.bool());
+            case BOOLEAN -> new CommandPaletteThemeStore.ThemeColors(colors.overlay(), colors.bg(), colors.shadow(), colors.accent(), colors.inputBg(), colors.separator(), colors.hover(), colors.selected(), colors.scrollbar(), colors.borderTop(), colors.star(), colors.starOff(), colors.buttonBg(), colors.buttonActive(), colors.categoryActive(), colors.slash(), colors.command(), colors.selector(), colors.coordinate(), colors.string(), colors.number(), color);
+        };
+    }
+
+    private void adjustActiveThemeAspectColor(int channel, int delta) {
+        if (!isActiveThemeEditable()) return;
+
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return;
+
+        ThemeAspect aspect = getSelectedThemeAspect();
+        int original = getAspectColor(active.colors(), aspect);
+
+        int alpha = (original >>> 24) & 0xFF;
+        int red = (original >>> 16) & 0xFF;
+        int green = (original >>> 8) & 0xFF;
+        int blue = original & 0xFF;
+
+        if (channel == 0) red = Math.max(0, Math.min(255, red + delta));
+        if (channel == 1) green = Math.max(0, Math.min(255, green + delta));
+        if (channel == 2) blue = Math.max(0, Math.min(255, blue + delta));
+
+        int updated = (alpha << 24) | (red << 16) | (green << 8) | blue;
+        CommandPaletteThemeStore.ThemeColors newColors = withAspectColor(active.colors(), aspect, updated);
+        themeLibrary.set(selectedThemeIndex, new CommandPaletteThemeStore.ThemePreset(active.id(), active.name(), active.editable(), newColors));
+        applyActiveTheme();
+        saveThemeLibrary();
+    }
+
+    private void syncThemeHexInputFromActiveAspect() {
+        if (themeHexInputField == null) return;
+        if (themeHexInputField.isFocused()) return;
+
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        ThemeAspect aspect = getSelectedThemeAspect();
+        int color = active == null ? COLOR_STAR : getAspectColor(active.colors(), aspect);
+        themeHexInputField.setText(String.format("#%06X", color & 0x00FFFFFF));
+        themeHexInputField.setCursorToEnd(false);
+    }
+
+    private Integer parseHexColorInput(String text, int fallbackAlpha) {
+        if (text == null) return null;
+        String normalized = text.trim();
+        if (normalized.isEmpty()) return null;
+        if (normalized.startsWith("#")) {
+            normalized = normalized.substring(1);
+        }
+
+        if (normalized.length() != 6 && normalized.length() != 8) {
+            return null;
+        }
+
+        for (int i = 0; i < normalized.length(); i++) {
+            char c = normalized.charAt(i);
+            boolean isHex = (c >= '0' && c <= '9')
+                    || (c >= 'a' && c <= 'f')
+                    || (c >= 'A' && c <= 'F');
+            if (!isHex) {
+                return null;
+            }
+        }
+
+        try {
+            long parsed = Long.parseLong(normalized, 16);
+            if (normalized.length() == 6) {
+                int rgb = (int) (parsed & 0x00FFFFFFL);
+                return (fallbackAlpha << 24) | rgb;
+            }
+            return (int) (parsed & 0xFFFFFFFFL);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private boolean applyThemeHexInput(boolean force) {
+        if (!isActiveThemeEditable()) return false;
+
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return false;
+
+        ThemeAspect aspect = getSelectedThemeAspect();
+        int original = getAspectColor(active.colors(), aspect);
+        Integer parsed = parseHexColorInput(themeHexInputField.getText(), (original >>> 24) & 0xFF);
+        if (parsed == null) {
+            if (force) {
+                syncThemeHexInputFromActiveAspect();
+            }
+            return false;
+        }
+
+        if (parsed == original) {
+            if (force) {
+                syncThemeHexInputFromActiveAspect();
+            }
+            return true;
+        }
+
+        CommandPaletteThemeStore.ThemeColors newColors = withAspectColor(active.colors(), aspect, parsed);
+        themeLibrary.set(selectedThemeIndex, new CommandPaletteThemeStore.ThemePreset(active.id(), active.name(), active.editable(), newColors));
+        applyActiveTheme();
+        saveThemeLibrary();
+        return true;
+    }
+
+    private void focusMainInputFromSettingsEditor() {
+        if (themeHexInputField != null) {
+            themeHexInputField.setFocused(false);
+            themeHexInputField.setVisible(false);
+        }
+        inputField.setFocused(true);
+        setFocused(inputField);
     }
 
     private String formatCommandForDisplay(String text) {
@@ -765,6 +1207,17 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private void setView(ViewMode viewMode) {
+        if (viewMode != ViewMode.COMMANDS) {
+            closeCategoryPicker();
+        }
+        if (viewMode != ViewMode.SETTINGS && renamingTheme) {
+            cancelThemeRename();
+        }
+        if (viewMode != ViewMode.SETTINGS && themeHexInputField != null && themeHexInputField.isFocused()) {
+            applyThemeHexInput(true);
+            themeHexInputField.setFocused(false);
+            themeHexInputField.setVisible(false);
+        }
         currentView = viewMode;
         selectedIndex = -1;
         scrollOffset = 0;
@@ -1068,10 +1521,6 @@ public class CommandPaletteScreen extends Screen {
 
         super.render(ctx, mouseX, mouseY, delta);
 
-        if (creatingCategoryInput) {
-            categoryInputField.render(ctx, mouseX, mouseY, delta);
-        }
-
         if (hoverAddCategory) {
             ctx.drawTooltip(this.textRenderer,
                 Text.translatable("screen.cmdpalette.tooltip.add_to_category_menu"),
@@ -1176,7 +1625,7 @@ public class CommandPaletteScreen extends Screen {
     private int computePaletteHeight() {
         int headerHeight = PADDING + NAVBAR_HEIGHT + NAVBAR_GAP + INPUT_HEIGHT + 12 + 1 + 4;
         if (currentView == ViewMode.SETTINGS) {
-            return headerHeight + (SETTINGS_ROW_HEIGHT * 2) + 8 + PADDING;
+            return headerHeight + (SETTINGS_ROW_HEIGHT * 6) + 28 + PADDING;
         }
 
         int listHeight = Math.min(getVisibleEntries().size(), getConfiguredMaxVisibleItems()) * SUGGESTION_ITEM_HEIGHT;
@@ -1219,20 +1668,29 @@ public class CommandPaletteScreen extends Screen {
                 pickerX + 6, rowY + 5, COLOR_STAR, false);
     }
 
-        private void renderSettingsContent(DrawContext ctx, int mouseX, int mouseY) {
-        int row1Y = getSettingsRow1Y();
-        int row2Y = getSettingsRow2Y();
+    private void renderSettingsContent(DrawContext ctx, int mouseX, int mouseY) {
+        int rowGap = SETTINGS_ROW_HEIGHT + 6;
+        int row1Y = getSettingsContentY();
+        int row2Y = row1Y + rowGap;
+        int row3Y = row2Y + rowGap;
+        int row4Y = row3Y + rowGap;
+        int row5Y = row4Y + rowGap;
+        int row6Y = row5Y + rowGap;
+
+        int controlsRight = getSettingsControlsRightX();
+        int labelX = getSettingsLabelX();
+        int valueX = getSettingsValueX();
 
         int decX = getSettingsDecreaseX();
         int incX = getSettingsIncreaseX();
         int switchX = getSettingsSlashSwitchX();
 
         boolean hoverDec = mouseX >= decX && mouseX < decX + SETTINGS_BUTTON_WIDTH
-            && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
+                && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
         boolean hoverInc = mouseX >= incX && mouseX < incX + SETTINGS_BUTTON_WIDTH
-            && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
+                && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
         boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + 56
-            && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
+                && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
 
         int decBg = hoverDec ? COLOR_ACCENT : COLOR_BUTTON_BG;
         int incBg = hoverInc ? COLOR_ACCENT : COLOR_BUTTON_BG;
@@ -1240,23 +1698,133 @@ public class CommandPaletteScreen extends Screen {
         if (hoverSwitch) switchBg = COLOR_ACCENT;
 
         ctx.drawText(this.textRenderer,
-            Text.translatable("screen.cmdpalette.settings.max_visible").getString(),
-            getInputX(), row1Y + 4, 0xFFC5C8C6, false);
+                Text.translatable("screen.cmdpalette.settings.max_visible").getString(),
+            labelX, row1Y + 4, 0xFFC5C8C6, false);
 
         ctx.fill(decX, row1Y, decX + SETTINGS_BUTTON_WIDTH, row1Y + NAVBAR_HEIGHT, decBg);
         ctx.fill(incX, row1Y, incX + SETTINGS_BUTTON_WIDTH, row1Y + NAVBAR_HEIGHT, incBg);
         ctx.drawText(this.textRenderer, "-", decX + 7, row1Y + 5, COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, "+", incX + 7, row1Y + 5, COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, String.valueOf(getConfiguredMaxVisibleItems()), incX + SETTINGS_BUTTON_WIDTH + 8,
-            row1Y + 5, COLOR_STAR, false);
+        String maxVisibleText = String.valueOf(getConfiguredMaxVisibleItems());
+        ctx.drawText(this.textRenderer, maxVisibleText, valueX, row1Y + 5, COLOR_STAR, false);
 
         ctx.drawText(this.textRenderer,
-            Text.translatable("screen.cmdpalette.settings.hide_slash").getString(),
-            getInputX(), row2Y + 4, 0xFFC5C8C6, false);
+                Text.translatable("screen.cmdpalette.settings.hide_slash").getString(),
+            labelX, row2Y + 4, 0xFFC5C8C6, false);
         ctx.fill(switchX, row2Y, switchX + 56, row2Y + NAVBAR_HEIGHT, switchBg);
-        ctx.drawText(this.textRenderer, hideSlashPrefix ? "ON" : "OFF", switchX + 18, row2Y + 5,
+        String switchText = hideSlashPrefix ? "ON" : "OFF";
+        int switchTextX = switchX + (56 - this.textRenderer.getWidth(switchText)) / 2;
+        ctx.drawText(this.textRenderer, switchText, switchTextX, row2Y + 5,
             hideSlashPrefix ? COLOR_STAR : COLOR_STAR_OFF, false);
+
+        CommandPaletteThemeStore.ThemePreset activeTheme = getActiveTheme();
+        String themeName = activeTheme == null ? "-" : activeTheme.name();
+        boolean editable = activeTheme != null && activeTheme.editable();
+
+        int themePrevX = controlsRight - 44;
+        int themeNextX = themePrevX + 24;
+        int themeNameX = valueX;
+        int themeNameWidth = Math.max(40, themePrevX - themeNameX - 6);
+        boolean hoverThemePrev = mouseX >= themePrevX && mouseX < themePrevX + 20
+            && mouseY >= row3Y && mouseY < row3Y + NAVBAR_HEIGHT;
+        boolean hoverThemeNext = mouseX >= themeNextX && mouseX < themeNextX + 20
+            && mouseY >= row3Y && mouseY < row3Y + NAVBAR_HEIGHT;
+        ctx.drawText(this.textRenderer,
+                Text.translatable("screen.cmdpalette.settings.theme").getString(),
+            labelX, row3Y + 4, 0xFFC5C8C6, false);
+        ctx.fill(themePrevX, row3Y, themePrevX + 20, row3Y + NAVBAR_HEIGHT, hoverThemePrev ? COLOR_ACCENT : COLOR_BUTTON_BG);
+        ctx.fill(themeNextX, row3Y, themeNextX + 20, row3Y + NAVBAR_HEIGHT, hoverThemeNext ? COLOR_ACCENT : COLOR_BUTTON_BG);
+        ctx.drawText(this.textRenderer, "<", themePrevX + 7, row3Y + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, ">", themeNextX + 7, row3Y + 5, COLOR_STAR_OFF, false);
+        if (renamingTheme && editable) {
+            themeRenameInputField.setPosition(themeNameX, row3Y);
+            themeRenameInputField.setWidth(themeNameWidth);
+            themeRenameInputField.setVisible(true);
+            themeRenameInputField.render(ctx, mouseX, mouseY, 0f);
+        } else {
+            themeRenameInputField.setVisible(false);
+            ctx.drawText(this.textRenderer, themeName, themeNameX, row3Y + 4, COLOR_STAR, false);
         }
+
+        int actionWidth = 40;
+        int actionGap = 4;
+        int actionsCount = 5;
+        int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
+        String[] actionLabels = {
+            Text.translatable("screen.cmdpalette.theme.action.new").getString(),
+            Text.translatable("screen.cmdpalette.theme.action.del").getString(),
+            Text.translatable("screen.cmdpalette.theme.action.exp").getString(),
+            Text.translatable("screen.cmdpalette.theme.action.imp").getString(),
+            Text.translatable("screen.cmdpalette.theme.action.ren").getString()
+        };
+        for (int i = 0; i < actionLabels.length; i++) {
+            int x = actionsStartX + i * (actionWidth + actionGap);
+            boolean disabled = (i == 1 || i == 4) && !editable;
+            boolean hoverAction = mouseX >= x && mouseX < x + actionWidth
+                && mouseY >= row4Y && mouseY < row4Y + NAVBAR_HEIGHT;
+            int bg = COLOR_BUTTON_BG;
+            if (disabled) {
+                bg = 0xFF1F1F1F;
+            } else if (hoverAction) {
+            bg = COLOR_ACCENT;
+            }
+            ctx.fill(x, row4Y, x + actionWidth, row4Y + NAVBAR_HEIGHT, bg);
+            int txtColor = disabled ? 0xFF555555 : COLOR_STAR_OFF;
+            int textX = x + Math.max(3, (actionWidth - this.textRenderer.getWidth(actionLabels[i])) / 2);
+            ctx.drawText(this.textRenderer, actionLabels[i], textX, row4Y + 5, txtColor, false);
+        }
+
+        ThemeAspect aspect = getSelectedThemeAspect();
+        int aspectPrevX = controlsRight - 44;
+        int aspectNextX = aspectPrevX + 24;
+        boolean hoverAspectPrev = mouseX >= aspectPrevX && mouseX < aspectPrevX + 20
+            && mouseY >= row5Y && mouseY < row5Y + NAVBAR_HEIGHT;
+        boolean hoverAspectNext = mouseX >= aspectNextX && mouseX < aspectNextX + 20
+            && mouseY >= row5Y && mouseY < row5Y + NAVBAR_HEIGHT;
+        ctx.drawText(this.textRenderer,
+                Text.translatable("screen.cmdpalette.settings.aspect").getString(),
+            labelX, row5Y + 4, 0xFFC5C8C6, false);
+        ctx.fill(aspectPrevX, row5Y, aspectPrevX + 20, row5Y + NAVBAR_HEIGHT, hoverAspectPrev ? COLOR_ACCENT : COLOR_BUTTON_BG);
+        ctx.fill(aspectNextX, row5Y, aspectNextX + 20, row5Y + NAVBAR_HEIGHT, hoverAspectNext ? COLOR_ACCENT : COLOR_BUTTON_BG);
+        ctx.drawText(this.textRenderer, "<", aspectPrevX + 7, row5Y + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, ">", aspectNextX + 7, row5Y + 5, COLOR_STAR_OFF, false);
+        ctx.drawText(this.textRenderer, Text.translatable(aspect.translationKey).getString(), valueX, row5Y + 4,
+                COLOR_STAR, false);
+
+        int currentColor = activeTheme == null ? COLOR_STAR : getAspectColor(activeTheme.colors(), aspect);
+        int swatchX = valueX;
+        ctx.fill(swatchX, row6Y + 2, swatchX + 28, row6Y + NAVBAR_HEIGHT - 2, currentColor);
+        int hexX = swatchX + 34;
+        int hexWidth = 92;
+        themeHexInputField.setPosition(hexX, row6Y);
+        themeHexInputField.setWidth(hexWidth);
+        themeHexInputField.setVisible(true);
+        if (!editable) {
+            themeHexInputField.setFocused(false);
+        }
+        syncThemeHexInputFromActiveAspect();
+        themeHexInputField.render(ctx, mouseX, mouseY, 0f);
+
+        int rgbStartX = controlsRight - 150;
+        String[] labels = {"R", "G", "B"};
+        for (int i = 0; i < 3; i++) {
+            int baseX = rgbStartX + i * 50;
+            int minusX = baseX;
+            int plusX = baseX + 20;
+            boolean hoverMinus = mouseX >= minusX && mouseX < minusX + 18
+                    && mouseY >= row6Y && mouseY < row6Y + NAVBAR_HEIGHT;
+            boolean hoverPlus = mouseX >= plusX && mouseX < plusX + 18
+                    && mouseY >= row6Y && mouseY < row6Y + NAVBAR_HEIGHT;
+            ctx.drawText(this.textRenderer, labels[i], baseX + 40, row6Y + 5, COLOR_STAR_OFF, false);
+            int minusBg = editable ? (hoverMinus ? COLOR_ACCENT : COLOR_BUTTON_BG) : 0xFF1F1F1F;
+            int plusBg = editable ? (hoverPlus ? COLOR_ACCENT : COLOR_BUTTON_BG) : 0xFF1F1F1F;
+            ctx.fill(minusX, row6Y, minusX + 18, row6Y + NAVBAR_HEIGHT, minusBg);
+            ctx.fill(plusX, row6Y, plusX + 18, row6Y + NAVBAR_HEIGHT, plusBg);
+            int c = editable ? COLOR_STAR_OFF : 0xFF555555;
+            ctx.drawText(this.textRenderer, "-", minusX + 6, row6Y + 5, c, false);
+            ctx.drawText(this.textRenderer, "+", plusX + 6, row6Y + 5, c, false);
+        }
+    }
 
     private void renderSyntaxHighlighted(DrawContext ctx, String command, int x, int y) {
         if (command == null || command.isEmpty()) return;
@@ -1288,7 +1856,7 @@ public class CommandPaletteScreen extends Screen {
         }
     }
 
-    private static int classifyToken(String token, int positionIndex) {
+    private int classifyToken(String token, int positionIndex) {
         if (token.startsWith("@")) return COLOR_SELECTOR;
         if (token.startsWith("~") || token.startsWith("^")) return COLOR_COORDINATE;
         if (token.startsWith("\"") || token.endsWith("\"")) return COLOR_STRING;
@@ -1342,6 +1910,39 @@ public class CommandPaletteScreen extends Screen {
         }
 
         if (currentView == ViewMode.SETTINGS) {
+            if (renamingTheme) {
+                if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                    commitThemeRename();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                    cancelThemeRename();
+                    return true;
+                }
+                if (themeRenameInputField.keyPressed(keyInput)) {
+                    return true;
+                }
+                return true;
+            }
+
+            if (themeHexInputField.isFocused()) {
+                if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                    applyThemeHexInput(true);
+                    focusMainInputFromSettingsEditor();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                    syncThemeHexInputFromActiveAspect();
+                    focusMainInputFromSettingsEditor();
+                    return true;
+                }
+                if (themeHexInputField.keyPressed(keyInput)) {
+                    applyThemeHexInput(false);
+                    return true;
+                }
+                return true;
+            }
+
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 setView(ViewMode.COMMANDS);
                 return true;
@@ -1383,6 +1984,16 @@ public class CommandPaletteScreen extends Screen {
             return true;
         }
         if (currentView == ViewMode.SETTINGS) {
+            if (renamingTheme) {
+                return themeRenameInputField.charTyped(charInput);
+            }
+            if (themeHexInputField.isFocused()) {
+                boolean handled = themeHexInputField.charTyped(charInput);
+                if (handled) {
+                    applyThemeHexInput(false);
+                }
+                return handled;
+            }
             return true;
         }
         return super.charTyped(charInput);
@@ -1530,6 +2141,55 @@ public class CommandPaletteScreen extends Screen {
         }
 
         if (currentView == ViewMode.SETTINGS) {
+            int rowGap = SETTINGS_ROW_HEIGHT + 6;
+            int row3Y = getSettingsContentY() + (rowGap * 2);
+            int row4Y = row3Y + rowGap;
+            int row5Y = row4Y + rowGap;
+            int row6Y = row5Y + rowGap;
+
+            int controlsRight = getSettingsControlsRightX();
+            int themePrevX = controlsRight - 44;
+            int themeNextX = themePrevX + 24;
+
+            int actionWidth = 40;
+            int actionGap = 4;
+            int actionsCount = 5;
+            int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
+
+            int aspectPrevX = controlsRight - 44;
+            int aspectNextX = aspectPrevX + 24;
+            int rgbStartX = controlsRight - 150;
+            int themeNameX = getSettingsValueX();
+            int themeNameWidth = Math.max(40, themePrevX - themeNameX - 6);
+            int hexX = themeNameX + 34;
+            int hexWidth = 92;
+
+            if (renamingTheme) {
+                if (themeRenameInputField.mouseClicked(click, bl)) {
+                    return true;
+                }
+                if (!(click.x() >= themeNameX && click.x() < themeNameX + themeNameWidth
+                        && click.y() >= row3Y && click.y() < row3Y + NAVBAR_HEIGHT)) {
+                    commitThemeRename();
+                }
+            }
+
+            if (themeHexInputField.isFocused()
+                    && !(click.x() >= hexX && click.x() < hexX + hexWidth
+                    && click.y() >= row6Y && click.y() < row6Y + NAVBAR_HEIGHT)) {
+                applyThemeHexInput(true);
+                focusMainInputFromSettingsEditor();
+            }
+
+            if (isActiveThemeEditable()
+                    && click.x() >= hexX && click.x() < hexX + hexWidth
+                    && click.y() >= row6Y && click.y() < row6Y + NAVBAR_HEIGHT) {
+                themeHexInputField.setFocused(true);
+                setFocused(themeHexInputField);
+                themeHexInputField.mouseClicked(click, bl);
+                return true;
+            }
+
             if (click.x() >= settingsDecX && click.x() < settingsDecX + SETTINGS_BUTTON_WIDTH
                     && click.y() >= row1Y && click.y() < row1Y + NAVBAR_HEIGHT) {
                 maxVisibleItems = Math.max(CommandPaletteSettingsStore.MIN_MAX_VISIBLE_ITEMS,
@@ -1558,6 +2218,61 @@ public class CommandPaletteScreen extends Screen {
                 clampSelectionAndScroll();
                 persistSettings();
                 return true;
+            }
+
+            if (click.x() >= themePrevX && click.x() < themePrevX + 20
+                    && click.y() >= row3Y && click.y() < row3Y + NAVBAR_HEIGHT) {
+                selectTheme(-1);
+                return true;
+            }
+
+            if (click.x() >= themeNextX && click.x() < themeNextX + 20
+                    && click.y() >= row3Y && click.y() < row3Y + NAVBAR_HEIGHT) {
+                selectTheme(1);
+                return true;
+            }
+
+            for (int i = 0; i < actionsCount; i++) {
+                int x = actionsStartX + i * (actionWidth + actionGap);
+                if (click.x() >= x && click.x() < x + actionWidth
+                        && click.y() >= row4Y && click.y() < row4Y + NAVBAR_HEIGHT) {
+                    if (i == 0) createNewTheme();
+                    if (i == 1) deleteActiveTheme();
+                    if (i == 2) exportActiveTheme();
+                    if (i == 3) importTheme();
+                    if (i == 4) startThemeRename();
+                    return true;
+                }
+            }
+
+            if (click.x() >= aspectPrevX && click.x() < aspectPrevX + 20
+                    && click.y() >= row5Y && click.y() < row5Y + NAVBAR_HEIGHT) {
+                selectThemeAspect(-1);
+                return true;
+            }
+
+            if (click.x() >= aspectNextX && click.x() < aspectNextX + 20
+                    && click.y() >= row5Y && click.y() < row5Y + NAVBAR_HEIGHT) {
+                selectThemeAspect(1);
+                return true;
+            }
+
+            for (int i = 0; i < 3; i++) {
+                int baseX = rgbStartX + i * 50;
+                int minusX = baseX;
+                int plusX = baseX + 20;
+
+                if (click.x() >= minusX && click.x() < minusX + 18
+                        && click.y() >= row6Y && click.y() < row6Y + NAVBAR_HEIGHT) {
+                    adjustActiveThemeAspectColor(i, -8);
+                    return true;
+                }
+
+                if (click.x() >= plusX && click.x() < plusX + 18
+                        && click.y() >= row6Y && click.y() < row6Y + NAVBAR_HEIGHT) {
+                    adjustActiveThemeAspectColor(i, 8);
+                    return true;
+                }
             }
 
             return true;
