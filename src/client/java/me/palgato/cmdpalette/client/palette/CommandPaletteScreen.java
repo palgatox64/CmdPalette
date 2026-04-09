@@ -101,6 +101,7 @@ public class CommandPaletteScreen extends Screen {
     private boolean hideSlashPrefix = false;
     private boolean creatingCategoryInput = false;
     private boolean renamingTheme = false;
+    private ViewMode viewBeforeSettings = ViewMode.COMMANDS;
     private ViewMode currentView = ViewMode.COMMANDS;
 
     private String cachedColorText = "";
@@ -406,8 +407,12 @@ public class CommandPaletteScreen extends Screen {
         return paletteX + paletteWidth - PADDING - NAVBAR_HEIGHT;
     }
 
-    private int getCategoryScrollRightX() {
+    private int getContextActionButtonX() {
         return getSettingsButtonX() - TAB_GAP - NAVBAR_HEIGHT;
+    }
+
+    private int getCategoryScrollRightX() {
+        return getContextActionButtonX() - TAB_GAP - NAVBAR_HEIGHT;
     }
 
     private int getAddToCategoryButtonX() {
@@ -1225,6 +1230,22 @@ public class CommandPaletteScreen extends Screen {
         scrollOffset = 0;
     }
 
+    private void openSettingsView() {
+        if (currentView == ViewMode.SETTINGS) {
+            return;
+        }
+        viewBeforeSettings = currentView;
+        setView(ViewMode.SETTINGS);
+    }
+
+    private void closeSettingsView() {
+        if (currentView != ViewMode.SETTINGS) {
+            return;
+        }
+        ViewMode target = viewBeforeSettings == ViewMode.SETTINGS ? ViewMode.COMMANDS : viewBeforeSettings;
+        setView(target);
+    }
+
     private void toggleView(ViewMode viewMode) {
         if (currentView == viewMode) {
             setView(ViewMode.COMMANDS);
@@ -1409,13 +1430,16 @@ public class CommandPaletteScreen extends Screen {
         int categoriesStartX = getCategoryTabsStartX();
         int scrollLeftX = getCategoryScrollLeftX();
         int scrollRightX = getCategoryScrollRightX();
-        int actionX = getSettingsButtonX();
+        int contextActionX = getContextActionButtonX();
+        int settingsX = getSettingsButtonX();
         int addCategoryX = getAddToCategoryButtonX();
         int favoriteButtonX = getFavoriteButtonX();
         boolean isHistoryView = currentView == ViewMode.HISTORY;
         boolean isCategoryView = isCategoryView();
         boolean isSettingsView = currentView == ViewMode.SETTINGS;
         boolean canDeleteCategory = canDeleteSelectedCategory();
+        boolean contextActionVisible = isHistoryView || isCategoryView;
+        boolean contextActionEnabled = isHistoryView || canDeleteCategory;
         boolean canScrollLeft = canScrollCategoriesLeft();
         boolean canScrollRight = canScrollCategoriesRight();
 
@@ -1428,7 +1452,9 @@ public class CommandPaletteScreen extends Screen {
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverScrollRight = mouseX >= scrollRightX && mouseX < scrollRightX + NAVBAR_HEIGHT
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
-        boolean hoverAction = mouseX >= actionX && mouseX < actionX + NAVBAR_HEIGHT
+        boolean hoverContextAction = mouseX >= contextActionX && mouseX < contextActionX + NAVBAR_HEIGHT
+            && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
+        boolean hoverSettings = mouseX >= settingsX && mouseX < settingsX + NAVBAR_HEIGHT
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverAddCategory = mouseX >= addCategoryX && mouseX < addCategoryX + STAR_BUTTON_SIZE
             && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
@@ -1439,7 +1465,8 @@ public class CommandPaletteScreen extends Screen {
         int scrollLeftBg = COLOR_BUTTON_BG;
         int scrollRightBg = COLOR_BUTTON_BG;
         int historyTabBg = currentView == ViewMode.HISTORY ? COLOR_CATEGORY_ACTIVE : COLOR_BUTTON_BG;
-        int actionBg = COLOR_BUTTON_BG;
+        int contextActionBg = COLOR_BUTTON_BG;
+        int settingsBg = COLOR_BUTTON_BG;
         int addCategoryBg = isCurrentInputInSelectedCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
         int favoriteBg = isCurrentInputInFavoritesCategory() ? COLOR_BUTTON_ACTIVE : COLOR_BUTTON_BG;
 
@@ -1450,8 +1477,11 @@ public class CommandPaletteScreen extends Screen {
         if (hoverFavoritesTab) favoritesTabBg = COLOR_ACCENT;
         if (hoverScrollLeft && canScrollLeft) scrollLeftBg = COLOR_ACCENT;
         if (hoverScrollRight && canScrollRight) scrollRightBg = COLOR_ACCENT;
-        if (hoverAction && (isHistoryView || isSettingsView || canDeleteCategory || currentView == ViewMode.COMMANDS)) {
-            actionBg = COLOR_ACCENT;
+        if (hoverContextAction && contextActionEnabled) {
+            contextActionBg = COLOR_ACCENT;
+        }
+        if (hoverSettings) {
+            settingsBg = COLOR_ACCENT;
         }
         if (hoverAddCategory) addCategoryBg = COLOR_ACCENT;
         if (hoverFavoriteButton) favoriteBg = COLOR_ACCENT;
@@ -1464,7 +1494,9 @@ public class CommandPaletteScreen extends Screen {
             canScrollLeft ? scrollLeftBg : COLOR_BUTTON_BG);
         ctx.fill(scrollRightX, navbarY, scrollRightX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
             canScrollRight ? scrollRightBg : COLOR_BUTTON_BG);
-        ctx.fill(actionX, navbarY, actionX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, actionBg);
+        ctx.fill(contextActionX, navbarY, contextActionX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
+                contextActionVisible ? contextActionBg : COLOR_BUTTON_BG);
+        ctx.fill(settingsX, navbarY, settingsX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, settingsBg);
         ctx.fill(addCategoryX, inputY, addCategoryX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addCategoryBg);
         ctx.fill(favoriteButtonX, inputY, favoriteButtonX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, favoriteBg);
 
@@ -1511,11 +1543,15 @@ public class CommandPaletteScreen extends Screen {
             categoryX += categoryWidth + TAB_GAP;
         }
 
-        String actionLabel = (isHistoryView || isCategoryView || isSettingsView) ? "✕" : "⚙";
-        int actionColor = (isHistoryView || isSettingsView || currentView == ViewMode.COMMANDS || canDeleteCategory)
-            ? COLOR_STAR_OFF
+        String contextActionLabel = "✕";
+        int contextActionColor = contextActionVisible
+            ? (contextActionEnabled ? COLOR_STAR_OFF : 0xFF555555)
             : 0xFF555555;
-        ctx.drawText(this.textRenderer, actionLabel, actionX + 6, navbarY + 5, actionColor, false);
+        ctx.drawText(this.textRenderer, contextActionLabel, contextActionX + 6, navbarY + 5, contextActionColor, false);
+
+        String settingsLabel = "⚙";
+        int settingsColor = isSettingsView ? COLOR_STAR : COLOR_STAR_OFF;
+        ctx.drawText(this.textRenderer, settingsLabel, settingsX + 6, navbarY + 5, settingsColor, false);
         ctx.drawText(this.textRenderer, "★+", addCategoryX + 3, inputY + 6,
             isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
@@ -1537,16 +1573,17 @@ public class CommandPaletteScreen extends Screen {
                     ? Text.translatable("screen.cmdpalette.tooltip.remove_from_favorites")
                     : Text.translatable("screen.cmdpalette.tooltip.add_to_favorites");
             ctx.drawTooltip(this.textRenderer, favoriteTooltip, mouseX, mouseY);
-        } else if (hoverAction) {
+        } else if (hoverContextAction && contextActionVisible) {
             String tooltipKey = isHistoryView
-                    ? "screen.cmdpalette.tooltip.clear_history"
-                    : (isSettingsView
-                        ? "screen.cmdpalette.tooltip.close_settings"
-                        : (isCategoryView
-                            ? (canDeleteCategory
-                                ? "screen.cmdpalette.tooltip.delete_category"
-                                : "screen.cmdpalette.tooltip.delete_category_disabled")
-                            : "screen.cmdpalette.tooltip.open_settings"));
+                ? "screen.cmdpalette.tooltip.clear_history"
+                : (canDeleteCategory
+                ? "screen.cmdpalette.tooltip.delete_category"
+                : "screen.cmdpalette.tooltip.delete_category_disabled");
+            ctx.drawTooltip(this.textRenderer, Text.translatable(tooltipKey), mouseX, mouseY);
+        } else if (hoverSettings) {
+            String tooltipKey = isSettingsView
+                ? "screen.cmdpalette.tooltip.close_settings"
+                : "screen.cmdpalette.tooltip.open_settings";
             ctx.drawTooltip(this.textRenderer, Text.translatable(tooltipKey), mouseX, mouseY);
         } else if (hoverHistoryTab) {
             ctx.drawTooltip(this.textRenderer,
@@ -1951,7 +1988,7 @@ public class CommandPaletteScreen extends Screen {
             }
 
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                setView(ViewMode.COMMANDS);
+                closeSettingsView();
                 return true;
             }
             return true;
@@ -2049,7 +2086,8 @@ public class CommandPaletteScreen extends Screen {
         int categoriesStartX = getCategoryTabsStartX();
         int scrollLeftX = getCategoryScrollLeftX();
         int scrollRightX = getCategoryScrollRightX();
-        int actionX = getSettingsButtonX();
+        int contextActionX = getContextActionButtonX();
+        int settingsX = getSettingsButtonX();
         int addCategoryX = getAddToCategoryButtonX();
         int favoriteButtonX = getFavoriteButtonX();
 
@@ -2127,24 +2165,26 @@ public class CommandPaletteScreen extends Screen {
             categoryX += categoryWidth + TAB_GAP;
         }
 
-        if (click.x() >= actionX && click.x() < actionX + NAVBAR_HEIGHT
+        if (click.x() >= contextActionX && click.x() < contextActionX + NAVBAR_HEIGHT
                 && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
             if (currentView == ViewMode.HISTORY) {
                 clearHistory();
-                return true;
-            }
-            if (currentView == ViewMode.SETTINGS) {
-                setView(ViewMode.COMMANDS);
-                return true;
-            }
-            if (currentView == ViewMode.COMMANDS) {
-                setView(ViewMode.SETTINGS);
                 return true;
             }
             if (canDeleteSelectedCategory()) {
                 deleteSelectedCategory();
                 return true;
             }
+        }
+
+        if (click.x() >= settingsX && click.x() < settingsX + NAVBAR_HEIGHT
+                && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
+            if (currentView == ViewMode.SETTINGS) {
+                closeSettingsView();
+                return true;
+            }
+            openSettingsView();
+            return true;
         }
 
         if (currentView == ViewMode.SETTINGS) {
