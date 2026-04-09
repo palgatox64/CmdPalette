@@ -18,14 +18,17 @@ import net.minecraft.text.OrderedText;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextColor;
+import net.minecraft.util.Util;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class CommandPaletteScreen extends Screen {
 
@@ -48,6 +51,7 @@ public class CommandPaletteScreen extends Screen {
     private static final int CATEGORY_PICKER_WIDTH = 180;
     private static final int CATEGORY_PICKER_ROW_HEIGHT = 18;
     private static final int MAX_HISTORY_ENTRIES = 100;
+    private static final Pattern CUSTOM_THEME_NUMBER_PATTERN = Pattern.compile("^theme-(\\d+)$");
 
     private int COLOR_OVERLAY = 0xB0000000;
     private int COLOR_BG = 0xFF1A1A1A;
@@ -97,6 +101,9 @@ public class CommandPaletteScreen extends Screen {
     private final List<CommandPaletteThemeStore.ThemePreset> themeLibrary = new ArrayList<>();
     private int selectedThemeIndex = 0;
     private int selectedThemeAspectIndex = 0;
+    private long themeLibraryLastModifiedMillis = -1L;
+    private long lastThemeLibraryCheckMillis = 0L;
+    private static final long THEME_LIBRARY_CHECK_INTERVAL_MS = 1000L;
     private int maxVisibleItems = CommandPaletteSettingsStore.DEFAULT_MAX_VISIBLE_ITEMS;
     private boolean hideSlashPrefix = false;
     private boolean creatingCategoryInput = false;
@@ -682,12 +689,14 @@ public class CommandPaletteScreen extends Screen {
 
         selectedThemeAspectIndex = Math.max(0, Math.min(selectedThemeAspectIndex, ThemeAspect.values().length - 1));
         applyActiveTheme();
+        themeLibraryLastModifiedMillis = CommandPaletteThemeStore.getThemeStoreLastModifiedMillis();
     }
 
     private void saveThemeLibrary() {
         CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
         if (active == null) return;
         CommandPaletteThemeStore.save(new CommandPaletteThemeStore.ThemeLibrary(new ArrayList<>(themeLibrary), active.id()));
+        themeLibraryLastModifiedMillis = CommandPaletteThemeStore.getThemeStoreLastModifiedMillis();
     }
 
     private CommandPaletteThemeStore.ThemePreset getActiveTheme() {
@@ -744,14 +753,12 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private void createNewTheme() {
-        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
-        CommandPaletteThemeStore.ThemeColors baseColors = active == null
-                ? CommandPaletteThemeStore.defaultTheme().colors()
-                : active.colors();
+        CommandPaletteThemeStore.ThemeColors baseColors = CommandPaletteThemeStore.defaultTheme().colors();
 
-        String name = "Theme " + (themeLibrary.size());
+        String generatedId = generateNextCustomThemeId();
+        String name = "Theme " + generatedId.substring("theme-".length());
         CommandPaletteThemeStore.ThemePreset preset = new CommandPaletteThemeStore.ThemePreset(
-                "theme-" + UUID.randomUUID(),
+            generatedId,
                 name,
                 true,
                 baseColors
@@ -766,6 +773,11 @@ public class CommandPaletteScreen extends Screen {
     private void deleteActiveTheme() {
         if (!isActiveThemeEditable()) return;
         if (themeLibrary.size() <= 1) return;
+
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active != null) {
+            CommandPaletteThemeStore.deleteThemeFile(active.id());
+        }
 
         themeLibrary.remove(selectedThemeIndex);
         selectedThemeIndex = Math.max(0, Math.min(selectedThemeIndex, themeLibrary.size() - 1));
@@ -817,26 +829,126 @@ public class CommandPaletteScreen extends Screen {
             name = name.substring(0, 32);
         }
 
+        String updatedId = active.id();
+        if (isCustomThemeId(active.id())) {
+            updatedId = generateCustomThemeIdFromName(name, selectedThemeIndex);
+            if (!updatedId.equals(active.id())) {
+                CommandPaletteThemeStore.deleteThemeFile(active.id());
+            }
+        }
+
         themeLibrary.set(selectedThemeIndex,
-                new CommandPaletteThemeStore.ThemePreset(active.id(), name, active.editable(), active.colors()));
+                new CommandPaletteThemeStore.ThemePreset(updatedId, name, active.editable(), active.colors()));
         saveThemeLibrary();
         cancelThemeRename();
     }
 
-    private void exportActiveTheme() {
-        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
-        if (active == null) return;
-        CommandPaletteThemeStore.exportTheme(active);
+    private boolean isCustomThemeId(String id) {
+        if (id == null || id.isBlank()) return false;
+        if (CommandPaletteThemeStore.DEFAULT_THEME_ID.equals(id)) return false;
+        return !id.startsWith("base-");
     }
 
-    private void importTheme() {
-        CommandPaletteThemeStore.ThemePreset imported = CommandPaletteThemeStore.importTheme();
-        if (imported == null) return;
+    private String generateNextCustomThemeId() {
+        int max = 0;
+        for (CommandPaletteThemeStore.ThemePreset preset : themeLibrary) {
+            if (preset == null || preset.id() == null) continue;
+            Matcher matcher = CUSTOM_THEME_NUMBER_PATTERN.matcher(preset.id());
+            if (matcher.matches()) {
+                try {
+                    int value = Integer.parseInt(matcher.group(1));
+                    if (value > max) {
+                        max = value;
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return ensureUniqueThemeId("theme-" + (max + 1), -1);
+    }
 
-        themeLibrary.add(imported);
-        selectedThemeIndex = themeLibrary.size() - 1;
-        applyActiveTheme();
-        saveThemeLibrary();
+    private String generateCustomThemeIdFromName(String name, int ignoreIndex) {
+        String normalized = name == null ? "" : name.trim().toLowerCase();
+        normalized = normalized.replaceAll("[^a-z0-9]+", "-");
+        normalized = normalized.replaceAll("^-+|-+$", "");
+        if (normalized.isBlank()) {
+            normalized = "theme";
+        }
+        return ensureUniqueThemeId("custom-" + normalized, ignoreIndex);
+    }
+
+    private String ensureUniqueThemeId(String baseId, int ignoreIndex) {
+        String candidate = baseId;
+        int suffix = 2;
+        while (themeIdExists(candidate, ignoreIndex)) {
+            candidate = baseId + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private boolean themeIdExists(String id, int ignoreIndex) {
+        for (int i = 0; i < themeLibrary.size(); i++) {
+            if (i == ignoreIndex) continue;
+            CommandPaletteThemeStore.ThemePreset preset = themeLibrary.get(i);
+            if (preset != null && id.equals(preset.id())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void openThemeFilesForActiveTheme() {
+        CommandPaletteThemeStore.ThemePreset active = getActiveTheme();
+        if (active == null) return;
+        Path targetPath;
+        if (active.editable()) {
+            targetPath = CommandPaletteThemeStore.writeThemeFile(active);
+        } else {
+            targetPath = CommandPaletteThemeStore.getThemesDirectoryPath();
+        }
+        if (this.client != null) {
+            this.client.keyboard.setClipboard(targetPath.toAbsolutePath().toString());
+        }
+        openThemesFolderInExplorer();
+    }
+
+    private void openThemesFolderInExplorer() {
+        Path folder = CommandPaletteThemeStore.getThemesDirectoryPath();
+        if (folder != null) {
+            Util.getOperatingSystem().open(folder.toFile());
+        }
+    }
+
+    private void checkExternalThemeLibraryUpdates() {
+        long now = System.currentTimeMillis();
+        if (now - lastThemeLibraryCheckMillis < THEME_LIBRARY_CHECK_INTERVAL_MS) {
+            return;
+        }
+        lastThemeLibraryCheckMillis = now;
+
+        long currentModified = CommandPaletteThemeStore.getThemeStoreLastModifiedMillis();
+        if (currentModified <= 0L) {
+            return;
+        }
+
+        if (themeLibraryLastModifiedMillis <= 0L) {
+            themeLibraryLastModifiedMillis = currentModified;
+            return;
+        }
+
+        if (currentModified == themeLibraryLastModifiedMillis) {
+            return;
+        }
+
+        if (renamingTheme) {
+            cancelThemeRename();
+        }
+        if (themeHexInputField != null) {
+            themeHexInputField.setFocused(false);
+            themeHexInputField.setVisible(false);
+        }
+        loadThemeLibrary();
     }
 
     private ThemeAspect getSelectedThemeAspect() {
@@ -1404,6 +1516,8 @@ public class CommandPaletteScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        checkExternalThemeLibraryUpdates();
+
         int paletteWidth = getPaletteWidth();
         int paletteX = (this.width - paletteWidth) / 2;
         int paletteY = this.height / 5;
@@ -1792,18 +1906,17 @@ public class CommandPaletteScreen extends Screen {
 
         int actionWidth = 40;
         int actionGap = 4;
-        int actionsCount = 5;
+        int actionsCount = 4;
         int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
         String[] actionLabels = {
             Text.translatable("screen.cmdpalette.theme.action.new").getString(),
             Text.translatable("screen.cmdpalette.theme.action.del").getString(),
-            Text.translatable("screen.cmdpalette.theme.action.exp").getString(),
-            Text.translatable("screen.cmdpalette.theme.action.imp").getString(),
+            Text.translatable("screen.cmdpalette.theme.action.file").getString(),
             Text.translatable("screen.cmdpalette.theme.action.ren").getString()
         };
         for (int i = 0; i < actionLabels.length; i++) {
             int x = actionsStartX + i * (actionWidth + actionGap);
-            boolean disabled = (i == 1 || i == 4) && !editable;
+            boolean disabled = (i == 1 || i == 3) && !editable;
             boolean hoverAction = mouseX >= x && mouseX < x + actionWidth
                 && mouseY >= row4Y && mouseY < row4Y + NAVBAR_HEIGHT;
             int bg = COLOR_BUTTON_BG;
@@ -2200,7 +2313,7 @@ public class CommandPaletteScreen extends Screen {
 
             int actionWidth = 40;
             int actionGap = 4;
-            int actionsCount = 5;
+            int actionsCount = 4;
             int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
 
             int aspectPrevX = controlsRight - 44;
@@ -2285,9 +2398,8 @@ public class CommandPaletteScreen extends Screen {
                         && click.y() >= row4Y && click.y() < row4Y + NAVBAR_HEIGHT) {
                     if (i == 0) createNewTheme();
                     if (i == 1) deleteActiveTheme();
-                    if (i == 2) exportActiveTheme();
-                    if (i == 3) importTheme();
-                    if (i == 4) startThemeRename();
+                    if (i == 2) openThemeFilesForActiveTheme();
+                    if (i == 3) startThemeRename();
                     return true;
                 }
             }

@@ -2,6 +2,8 @@ package me.palgato.cmdpalette.client.palette;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import net.fabricmc.loader.api.FabricLoader;
 
@@ -10,6 +12,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.DirectoryStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +39,10 @@ public final class CommandPaletteThemeStore {
     private static final Path IMPORT_PATH = FabricLoader.getInstance()
             .getConfigDir()
             .resolve("cmdpalette-theme-import.json");
+        private static final Path THEMES_DIR = FabricLoader.getInstance()
+            .getConfigDir()
+            .resolve("cmdpalette")
+            .resolve("themes");
 
     private CommandPaletteThemeStore() {
     }
@@ -43,63 +50,64 @@ public final class CommandPaletteThemeStore {
     public static ThemeLibrary load() {
         ThemePreset defaultTheme = defaultTheme();
 
+        ThemeLibraryPayload payload = readLibraryPayload();
+
+        Map<String, ThemePreset> unique = new LinkedHashMap<>();
+
+        if (payload.themes != null) {
+            for (ThemePresetPayload presetPayload : payload.themes) {
+                ThemePreset preset = presetPayload == null ? null : presetPayload.toThemePreset();
+                if (preset == null) continue;
+                if (DEFAULT_THEME_ID.equals(preset.id())) continue;
+                unique.put(preset.id(), preset.withEditable(true));
+            }
+        }
+
+        for (ThemePreset preset : readThemesFromFiles()) {
+            if (preset == null) continue;
+            if (DEFAULT_THEME_ID.equals(preset.id())) continue;
+            unique.put(preset.id(), preset.withEditable(true));
+        }
+
+        List<ThemePreset> themes = new ArrayList<>();
+        themes.add(defaultTheme);
+
+        if (needsBundledThemeMigration(payload)) {
+            boolean includeDracula = !payload.seededBaseThemes;
+            removeDeprecatedBundledThemes(unique, payload);
+            appendBundledEditableThemes(unique, includeDracula);
+        }
+
+        themes.addAll(unique.values());
+
+        String selectedId = payload.selectedThemeId;
+        boolean exists = false;
+        if (selectedId != null) {
+            for (ThemePreset theme : themes) {
+                if (theme.id().equals(selectedId)) {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (selectedId == null || !exists) {
+            selectedId = DEFAULT_THEME_ID;
+        }
+
+        return new ThemeLibrary(themes, selectedId);
+    }
+
+    private static ThemeLibraryPayload readLibraryPayload() {
         if (!Files.exists(LIBRARY_PATH)) {
-            List<ThemePreset> onlyDefault = new ArrayList<>();
-            onlyDefault.add(defaultTheme);
-            appendBundledEditableThemes(onlyDefault, true);
-            return new ThemeLibrary(onlyDefault, DEFAULT_THEME_ID);
+            return new ThemeLibraryPayload();
         }
 
         try (Reader reader = Files.newBufferedReader(LIBRARY_PATH)) {
             ThemeLibraryPayload payload = GSON.fromJson(reader, ThemeLibraryPayload.class);
-            if (payload == null) {
-                List<ThemePreset> onlyDefault = new ArrayList<>();
-                onlyDefault.add(defaultTheme);
-                appendBundledEditableThemes(onlyDefault, true);
-                return new ThemeLibrary(onlyDefault, DEFAULT_THEME_ID);
-            }
-
-            List<ThemePreset> themes = new ArrayList<>();
-            themes.add(defaultTheme);
-
-            if (payload.themes != null) {
-                Map<String, ThemePreset> unique = new LinkedHashMap<>();
-                for (ThemePresetPayload presetPayload : payload.themes) {
-                    ThemePreset preset = presetPayload == null ? null : presetPayload.toThemePreset();
-                    if (preset == null) continue;
-                    if (DEFAULT_THEME_ID.equals(preset.id())) continue;
-                    unique.put(preset.id(), preset.withEditable(true));
-                }
-                themes.addAll(unique.values());
-            }
-
-            if (needsBundledThemeMigration(payload)) {
-                boolean includeDracula = !payload.seededBaseThemes;
-                removeDeprecatedBundledThemes(themes, payload);
-                appendBundledEditableThemes(themes, includeDracula);
-            }
-
-            String selectedId = payload.selectedThemeId;
-            boolean exists = false;
-            if (selectedId != null) {
-                for (ThemePreset theme : themes) {
-                    if (theme.id().equals(selectedId)) {
-                        exists = true;
-                        break;
-                    }
-                }
-            }
-
-            if (selectedId == null || !exists) {
-                selectedId = DEFAULT_THEME_ID;
-            }
-
-            return new ThemeLibrary(themes, selectedId);
+            return payload == null ? new ThemeLibraryPayload() : payload;
         } catch (IOException | JsonSyntaxException ignored) {
-            List<ThemePreset> onlyDefault = new ArrayList<>();
-            onlyDefault.add(defaultTheme);
-            appendBundledEditableThemes(onlyDefault, true);
-            return new ThemeLibrary(onlyDefault, DEFAULT_THEME_ID);
+            return new ThemeLibraryPayload();
         }
     }
 
@@ -110,11 +118,6 @@ public final class CommandPaletteThemeStore {
         payload.seededBaseThemes = true;
         payload.bundledThemesRevision = BUNDLED_THEMES_REVISION;
 
-        for (ThemePreset theme : library.themes()) {
-            if (DEFAULT_THEME_ID.equals(theme.id())) continue;
-            payload.themes.add(ThemePresetPayload.fromThemePreset(theme.withEditable(true)));
-        }
-
         try {
             Files.createDirectories(LIBRARY_PATH.getParent());
             try (Writer writer = Files.newBufferedWriter(LIBRARY_PATH)) {
@@ -122,26 +125,77 @@ public final class CommandPaletteThemeStore {
             }
         } catch (IOException ignored) {
         }
+
+        writeThemesToFiles(library.themes());
     }
 
-    public static void exportTheme(ThemePreset theme) {
+    private static void writeThemesToFiles(List<ThemePreset> themes) {
+        try {
+            Files.createDirectories(THEMES_DIR);
+        } catch (IOException ignored) {
+            return;
+        }
+
+        for (ThemePreset theme : themes) {
+            if (theme == null) continue;
+            if (DEFAULT_THEME_ID.equals(theme.id())) continue;
+            if (theme.id().isBlank()) continue;
+            Path path = getThemePath(theme.id());
+            ThemePresetPayload payload = ThemePresetPayload.fromThemePreset(theme.withEditable(true));
+            try (Writer writer = Files.newBufferedWriter(path)) {
+                GSON.toJson(payload, writer);
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static List<ThemePreset> readThemesFromFiles() {
+        List<ThemePreset> presets = new ArrayList<>();
+        if (!Files.exists(THEMES_DIR)) {
+            return presets;
+        }
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(THEMES_DIR, "*.json")) {
+            for (Path path : stream) {
+                try (Reader reader = Files.newBufferedReader(path)) {
+                    ThemePresetPayload payload = ThemePresetPayload.readFromReader(reader);
+                    ThemePreset preset = payload == null ? null : payload.toThemePreset();
+                    if (preset != null) {
+                        presets.add(preset.withEditable(true));
+                    }
+                } catch (IOException | JsonSyntaxException ignored) {
+                }
+            }
+        } catch (IOException ignored) {
+        }
+
+        return presets;
+    }
+
+    public static Path exportTheme(ThemePreset theme) {
         ThemePresetPayload payload = ThemePresetPayload.fromThemePreset(theme);
         try {
             Files.createDirectories(EXPORT_PATH.getParent());
             try (Writer writer = Files.newBufferedWriter(EXPORT_PATH)) {
                 GSON.toJson(payload, writer);
             }
+            return EXPORT_PATH;
         } catch (IOException ignored) {
+            return EXPORT_PATH;
         }
     }
 
     public static ThemePreset importTheme() {
-        if (!Files.exists(IMPORT_PATH)) {
+        Path source = Files.exists(IMPORT_PATH)
+                ? IMPORT_PATH
+                : (Files.exists(EXPORT_PATH) ? EXPORT_PATH : null);
+
+        if (source == null) {
             return null;
         }
 
-        try (Reader reader = Files.newBufferedReader(IMPORT_PATH)) {
-            ThemePresetPayload payload = GSON.fromJson(reader, ThemePresetPayload.class);
+        try (Reader reader = Files.newBufferedReader(source)) {
+            ThemePresetPayload payload = ThemePresetPayload.readFromReader(reader);
             if (payload == null) return null;
             ThemePreset preset = payload.toThemePreset();
             if (preset == null) return null;
@@ -154,6 +208,95 @@ public final class CommandPaletteThemeStore {
             );
         } catch (IOException | JsonSyntaxException ignored) {
             return null;
+        }
+    }
+
+    public static Path writeImportTemplate(ThemePreset theme) {
+        ThemePresetPayload payload = ThemePresetPayload.fromThemePreset(theme);
+        try {
+            Files.createDirectories(IMPORT_PATH.getParent());
+            try (Writer writer = Files.newBufferedWriter(IMPORT_PATH)) {
+                GSON.toJson(payload, writer);
+            }
+            return IMPORT_PATH;
+        } catch (IOException ignored) {
+            return IMPORT_PATH;
+        }
+    }
+
+    public static Path writeThemeFile(ThemePreset theme) {
+        if (theme == null || theme.id() == null || theme.id().isBlank()) {
+            return THEMES_DIR.resolve("theme.json");
+        }
+        Path path = getThemePath(theme.id());
+        ThemePresetPayload payload = ThemePresetPayload.fromThemePreset(theme.withEditable(true));
+        try {
+            Files.createDirectories(THEMES_DIR);
+            try (Writer writer = Files.newBufferedWriter(path)) {
+                GSON.toJson(payload, writer);
+            }
+        } catch (IOException ignored) {
+        }
+        return path;
+    }
+
+    public static void deleteThemeFile(String themeId) {
+        if (themeId == null || themeId.isBlank() || DEFAULT_THEME_ID.equals(themeId)) {
+            return;
+        }
+
+        Path path = getThemePath(themeId);
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static Path getThemePath(String themeId) {
+        String safeId = themeId == null ? "theme" : themeId.replaceAll("[^a-zA-Z0-9._-]", "_");
+        return THEMES_DIR.resolve(safeId + ".json");
+    }
+
+    public static Path getLibraryPath() {
+        return LIBRARY_PATH;
+    }
+
+    public static Path getImportPath() {
+        return IMPORT_PATH;
+    }
+
+    public static Path getExportPath() {
+        return EXPORT_PATH;
+    }
+
+    public static Path getThemesDirectoryPath() {
+        return THEMES_DIR;
+    }
+
+    public static long getThemeStoreLastModifiedMillis() {
+        long latest = getLastModifiedMillis(LIBRARY_PATH);
+        latest = Math.max(latest, getLastModifiedMillis(THEMES_DIR));
+
+        if (Files.exists(THEMES_DIR)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(THEMES_DIR, "*.json")) {
+                for (Path path : stream) {
+                    latest = Math.max(latest, getLastModifiedMillis(path));
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
+        return latest;
+    }
+
+    public static long getLastModifiedMillis(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return -1L;
+        }
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException ignored) {
+            return -1L;
         }
     }
 
@@ -349,9 +492,9 @@ public final class CommandPaletteThemeStore {
         );
     }
 
-    private static void removeDeprecatedBundledThemes(List<ThemePreset> themes, ThemeLibraryPayload payload) {
+    private static void removeDeprecatedBundledThemes(Map<String, ThemePreset> themes, ThemeLibraryPayload payload) {
         if (payload.bundledThemesRevision < 5) {
-            themes.removeIf(theme -> "base-light".equals(theme.id()));
+            themes.remove("base-light");
         }
     }
 
@@ -359,31 +502,22 @@ public final class CommandPaletteThemeStore {
         return !payload.seededBaseThemes || payload.bundledThemesRevision < BUNDLED_THEMES_REVISION;
     }
 
-    private static void appendBundledEditableThemes(List<ThemePreset> themes, boolean includeDracula) {
-        if (includeDracula && !containsThemeId(themes, BASE_THEME_DRACULA_ID)) {
-            themes.add(draculaTheme());
+    private static void appendBundledEditableThemes(Map<String, ThemePreset> themes, boolean includeDracula) {
+        if (includeDracula && !themes.containsKey(BASE_THEME_DRACULA_ID)) {
+            themes.put(BASE_THEME_DRACULA_ID, draculaTheme());
         }
-        if (!containsThemeId(themes, BASE_THEME_NORD_ID)) {
-            themes.add(nordTheme());
+        if (!themes.containsKey(BASE_THEME_NORD_ID)) {
+            themes.put(BASE_THEME_NORD_ID, nordTheme());
         }
-        if (!containsThemeId(themes, BASE_THEME_GRUVBOX_ID)) {
-            themes.add(gruvboxTheme());
+        if (!themes.containsKey(BASE_THEME_GRUVBOX_ID)) {
+            themes.put(BASE_THEME_GRUVBOX_ID, gruvboxTheme());
         }
-        if (!containsThemeId(themes, BASE_THEME_MATRIX_ID)) {
-            themes.add(matrixTheme());
+        if (!themes.containsKey(BASE_THEME_MATRIX_ID)) {
+            themes.put(BASE_THEME_MATRIX_ID, matrixTheme());
         }
-        if (!containsThemeId(themes, BASE_THEME_GITHUB_ID)) {
-            themes.add(githubTheme());
+        if (!themes.containsKey(BASE_THEME_GITHUB_ID)) {
+            themes.put(BASE_THEME_GITHUB_ID, githubTheme());
         }
-    }
-
-    private static boolean containsThemeId(List<ThemePreset> themes, String id) {
-        for (ThemePreset theme : themes) {
-            if (id.equals(theme.id())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static String sanitizeName(String name) {
@@ -391,6 +525,68 @@ public final class CommandPaletteThemeStore {
         String trimmed = name.trim();
         if (trimmed.isEmpty()) return "Imported Theme";
         return trimmed.length() > 32 ? trimmed.substring(0, 32) : trimmed;
+    }
+
+    private static String colorToHex(int value) {
+        return String.format("#%08X", value);
+    }
+
+    private static Integer parseColorValue(JsonElement element) {
+        if (element == null || element.isJsonNull() || !element.isJsonPrimitive()) {
+            return null;
+        }
+
+        try {
+            if (element.getAsJsonPrimitive().isNumber()) {
+                return element.getAsInt();
+            }
+
+            String text = element.getAsString();
+            if (text == null) return null;
+            String normalized = text.trim();
+            if (normalized.isEmpty()) return null;
+            if (normalized.startsWith("#")) {
+                normalized = normalized.substring(1);
+            }
+
+            if (normalized.length() != 6 && normalized.length() != 8) {
+                return null;
+            }
+
+            long parsed = Long.parseLong(normalized, 16);
+            if (normalized.length() == 6) {
+                return (int) (0xFF000000L | parsed);
+            }
+            return (int) (parsed & 0xFFFFFFFFL);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static Integer parseColorText(String text) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.startsWith("#")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.length() != 6 && normalized.length() != 8) {
+            return null;
+        }
+
+        try {
+            long parsed = Long.parseLong(normalized, 16);
+            if (normalized.length() == 6) {
+                return (int) (0xFF000000L | parsed);
+            }
+            return (int) (parsed & 0xFFFFFFFFL);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     public record ThemeLibrary(List<ThemePreset> themes, String selectedThemeId) {
@@ -438,16 +634,18 @@ public final class CommandPaletteThemeStore {
     private static final class ThemePresetPayload {
         private String id;
         private String name;
-        private ThemeColors colors;
+        private ThemeColorsPayload colors;
 
         private ThemePreset toThemePreset() {
             if (id == null || id.isBlank()) return null;
             if (colors == null) return null;
+            ThemeColors decodedColors = colors.toThemeColors();
+            if (decodedColors == null) return null;
             return new ThemePreset(
                     id,
                     sanitizeName(name),
                     true,
-                    colors
+                    decodedColors
             );
         }
 
@@ -455,8 +653,173 @@ public final class CommandPaletteThemeStore {
             ThemePresetPayload payload = new ThemePresetPayload();
             payload.id = preset.id();
             payload.name = preset.name();
-            payload.colors = preset.colors();
+            payload.colors = ThemeColorsPayload.fromThemeColors(preset.colors());
             return payload;
+        }
+
+        private static ThemePresetPayload fromJsonObject(JsonObject object) {
+            if (object == null) return null;
+            ThemePresetPayload payload = new ThemePresetPayload();
+            JsonElement idElement = object.get("id");
+            JsonElement nameElement = object.get("name");
+            payload.id = (idElement == null || idElement.isJsonNull()) ? null : idElement.getAsString();
+            payload.name = (nameElement == null || nameElement.isJsonNull()) ? null : nameElement.getAsString();
+            payload.colors = ThemeColorsPayload.fromJsonObject(object.getAsJsonObject("colors"));
+            return payload;
+        }
+
+        private static ThemePresetPayload readFromReader(Reader reader) {
+            try {
+                JsonObject object = GSON.fromJson(reader, JsonObject.class);
+                return fromJsonObject(object);
+            } catch (JsonSyntaxException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static final class ThemeColorsPayload {
+        private String overlay;
+        private String bg;
+        private String shadow;
+        private String accent;
+        private String inputBg;
+        private String separator;
+        private String hover;
+        private String selected;
+        private String scrollbar;
+        private String borderTop;
+        private String star;
+        private String starOff;
+        private String buttonBg;
+        private String buttonActive;
+        private String categoryActive;
+        private String slash;
+        private String command;
+        private String selector;
+        private String coordinate;
+        private String string;
+        private String number;
+        private String bool;
+
+        private ThemeColors toThemeColors() {
+            Integer overlayValue = parseColorText(overlay);
+            Integer bgValue = parseColorText(bg);
+            Integer shadowValue = parseColorText(shadow);
+            Integer accentValue = parseColorText(accent);
+            Integer inputBgValue = parseColorText(inputBg);
+            Integer separatorValue = parseColorText(separator);
+            Integer hoverValue = parseColorText(hover);
+            Integer selectedValue = parseColorText(selected);
+            Integer scrollbarValue = parseColorText(scrollbar);
+            Integer borderTopValue = parseColorText(borderTop);
+            Integer starValue = parseColorText(star);
+            Integer starOffValue = parseColorText(starOff);
+            Integer buttonBgValue = parseColorText(buttonBg);
+            Integer buttonActiveValue = parseColorText(buttonActive);
+            Integer categoryActiveValue = parseColorText(categoryActive);
+            Integer slashValue = parseColorText(slash);
+            Integer commandValue = parseColorText(command);
+            Integer selectorValue = parseColorText(selector);
+            Integer coordinateValue = parseColorText(coordinate);
+            Integer stringValue = parseColorText(string);
+            Integer numberValue = parseColorText(number);
+            Integer boolValue = parseColorText(bool);
+
+            if (overlayValue == null || bgValue == null || shadowValue == null || accentValue == null
+                    || inputBgValue == null || separatorValue == null || hoverValue == null || selectedValue == null
+                    || scrollbarValue == null || borderTopValue == null || starValue == null || starOffValue == null
+                    || buttonBgValue == null || buttonActiveValue == null || categoryActiveValue == null
+                    || slashValue == null || commandValue == null || selectorValue == null || coordinateValue == null
+                    || stringValue == null || numberValue == null || boolValue == null) {
+                return null;
+            }
+
+            return new ThemeColors(
+                    overlayValue,
+                    bgValue,
+                    shadowValue,
+                    accentValue,
+                    inputBgValue,
+                    separatorValue,
+                    hoverValue,
+                    selectedValue,
+                    scrollbarValue,
+                    borderTopValue,
+                    starValue,
+                    starOffValue,
+                    buttonBgValue,
+                    buttonActiveValue,
+                    categoryActiveValue,
+                    slashValue,
+                    commandValue,
+                    selectorValue,
+                    coordinateValue,
+                    stringValue,
+                    numberValue,
+                    boolValue
+            );
+        }
+
+        private static ThemeColorsPayload fromThemeColors(ThemeColors colors) {
+            ThemeColorsPayload payload = new ThemeColorsPayload();
+            payload.overlay = colorToHex(colors.overlay());
+            payload.bg = colorToHex(colors.bg());
+            payload.shadow = colorToHex(colors.shadow());
+            payload.accent = colorToHex(colors.accent());
+            payload.inputBg = colorToHex(colors.inputBg());
+            payload.separator = colorToHex(colors.separator());
+            payload.hover = colorToHex(colors.hover());
+            payload.selected = colorToHex(colors.selected());
+            payload.scrollbar = colorToHex(colors.scrollbar());
+            payload.borderTop = colorToHex(colors.borderTop());
+            payload.star = colorToHex(colors.star());
+            payload.starOff = colorToHex(colors.starOff());
+            payload.buttonBg = colorToHex(colors.buttonBg());
+            payload.buttonActive = colorToHex(colors.buttonActive());
+            payload.categoryActive = colorToHex(colors.categoryActive());
+            payload.slash = colorToHex(colors.slash());
+            payload.command = colorToHex(colors.command());
+            payload.selector = colorToHex(colors.selector());
+            payload.coordinate = colorToHex(colors.coordinate());
+            payload.string = colorToHex(colors.string());
+            payload.number = colorToHex(colors.number());
+            payload.bool = colorToHex(colors.bool());
+            return payload;
+        }
+
+        private static ThemeColorsPayload fromJsonObject(JsonObject object) {
+            if (object == null) return null;
+
+            ThemeColorsPayload payload = new ThemeColorsPayload();
+            payload.overlay = normalizeColorString(object.get("overlay"));
+            payload.bg = normalizeColorString(object.get("bg"));
+            payload.shadow = normalizeColorString(object.get("shadow"));
+            payload.accent = normalizeColorString(object.get("accent"));
+            payload.inputBg = normalizeColorString(object.get("inputBg"));
+            payload.separator = normalizeColorString(object.get("separator"));
+            payload.hover = normalizeColorString(object.get("hover"));
+            payload.selected = normalizeColorString(object.get("selected"));
+            payload.scrollbar = normalizeColorString(object.get("scrollbar"));
+            payload.borderTop = normalizeColorString(object.get("borderTop"));
+            payload.star = normalizeColorString(object.get("star"));
+            payload.starOff = normalizeColorString(object.get("starOff"));
+            payload.buttonBg = normalizeColorString(object.get("buttonBg"));
+            payload.buttonActive = normalizeColorString(object.get("buttonActive"));
+            payload.categoryActive = normalizeColorString(object.get("categoryActive"));
+            payload.slash = normalizeColorString(object.get("slash"));
+            payload.command = normalizeColorString(object.get("command"));
+            payload.selector = normalizeColorString(object.get("selector"));
+            payload.coordinate = normalizeColorString(object.get("coordinate"));
+            payload.string = normalizeColorString(object.get("string"));
+            payload.number = normalizeColorString(object.get("number"));
+            payload.bool = normalizeColorString(object.get("bool"));
+            return payload;
+        }
+
+        private static String normalizeColorString(JsonElement element) {
+            Integer parsed = parseColorValue(element);
+            return parsed == null ? null : colorToHex(parsed);
         }
     }
 }
