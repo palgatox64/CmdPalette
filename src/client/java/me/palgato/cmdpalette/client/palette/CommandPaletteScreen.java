@@ -1206,6 +1206,16 @@ public class CommandPaletteScreen extends Screen {
         return hideSlashPrefix ? noPrefix : "/" + noPrefix;
     }
 
+    private boolean hasMeaningfulInput() {
+        if (inputField == null) return false;
+        String text = inputField.getText();
+        if (text == null) return false;
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) return false;
+        String noPrefix = trimmed.startsWith("/") ? trimmed.substring(1).trim() : trimmed;
+        return !noPrefix.isEmpty();
+    }
+
     private boolean isCurrentInputInSelectedCategory() {
         String normalized = normalizeCommand(inputField.getText());
         if (normalized.isBlank()) return false;
@@ -1350,6 +1360,14 @@ public class CommandPaletteScreen extends Screen {
     private void setView(ViewMode viewMode) {
         if (viewMode != ViewMode.COMMANDS) {
             closeCategoryPicker();
+        }
+        if (inputField != null) {
+            boolean showInput = viewMode != ViewMode.SETTINGS;
+            inputField.setVisible(showInput);
+            inputField.setFocused(showInput);
+            if (showInput) {
+                setFocused(inputField);
+            }
         }
         if (viewMode != ViewMode.SETTINGS && renamingTheme) {
             cancelThemeRename();
@@ -1558,8 +1576,10 @@ public class CommandPaletteScreen extends Screen {
 
         ctx.fill(paletteX, paletteY, paletteX + paletteWidth, paletteY + 2, COLOR_BORDER_TOP);
 
-        ctx.fill(paletteX + 4, paletteY + 4,
-            paletteX + paletteWidth - 4, inputY + INPUT_HEIGHT + 4, COLOR_INPUT_BG);
+        if (currentView != ViewMode.SETTINGS) {
+            ctx.fill(paletteX + 4, paletteY + 4,
+                paletteX + paletteWidth - 4, inputY + INPUT_HEIGHT + 4, COLOR_INPUT_BG);
+        }
 
         int historyTabX = getHistoryTabX();
         int favoritesTabX = getFavoritesTabX();
@@ -1578,8 +1598,13 @@ public class CommandPaletteScreen extends Screen {
         boolean canDeleteCategory = canDeleteSelectedCategory();
         boolean contextActionVisible = isHistoryView || isCategoryView;
         boolean contextActionEnabled = isHistoryView || canDeleteCategory;
+        boolean canUseQuickAddButtons = !isSettingsView && hasMeaningfulInput();
         boolean canScrollLeft = canScrollCategoriesLeft();
         boolean canScrollRight = canScrollCategoriesRight();
+
+        if (!canUseQuickAddButtons && categoryPickerOpen) {
+            closeCategoryPicker();
+        }
 
         boolean hoverHistoryTab = mouseX >= historyTabX && mouseX < historyTabX + TAB_BUTTON_WIDTH
                 && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
@@ -1594,9 +1619,11 @@ public class CommandPaletteScreen extends Screen {
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
         boolean hoverSettings = mouseX >= settingsX && mouseX < settingsX + NAVBAR_HEIGHT
             && mouseY >= navbarY && mouseY < navbarY + NAVBAR_HEIGHT;
-        boolean hoverAddCategory = mouseX >= addCategoryX && mouseX < addCategoryX + STAR_BUTTON_SIZE
+        boolean hoverAddCategory = canUseQuickAddButtons
+            && mouseX >= addCategoryX && mouseX < addCategoryX + STAR_BUTTON_SIZE
             && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
-        boolean hoverFavoriteButton = mouseX >= favoriteButtonX && mouseX < favoriteButtonX + STAR_BUTTON_SIZE
+        boolean hoverFavoriteButton = canUseQuickAddButtons
+            && mouseX >= favoriteButtonX && mouseX < favoriteButtonX + STAR_BUTTON_SIZE
             && mouseY >= inputY && mouseY < inputY + STAR_BUTTON_SIZE;
 
         int favoritesTabBg = COLOR_BUTTON_BG;
@@ -1635,8 +1662,10 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(contextActionX, navbarY, contextActionX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT,
                 contextActionVisible ? contextActionBg : COLOR_BUTTON_BG);
         ctx.fill(settingsX, navbarY, settingsX + NAVBAR_HEIGHT, navbarY + NAVBAR_HEIGHT, settingsBg);
-        ctx.fill(addCategoryX, inputY, addCategoryX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addCategoryBg);
-        ctx.fill(favoriteButtonX, inputY, favoriteButtonX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, favoriteBg);
+        if (canUseQuickAddButtons) {
+            ctx.fill(addCategoryX, inputY, addCategoryX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, addCategoryBg);
+            ctx.fill(favoriteButtonX, inputY, favoriteButtonX + STAR_BUTTON_SIZE, inputY + STAR_BUTTON_SIZE, favoriteBg);
+        }
 
         boolean historyActive = currentView == ViewMode.HISTORY;
         ctx.drawText(this.textRenderer, "↺", historyTabX + 6, navbarY + 5,
@@ -1690,10 +1719,12 @@ public class CommandPaletteScreen extends Screen {
         String settingsLabel = "⚙";
         int settingsColor = isSettingsView ? COLOR_STAR : COLOR_STAR_OFF;
         ctx.drawText(this.textRenderer, settingsLabel, settingsX + 6, navbarY + 5, settingsColor, false);
-        ctx.drawText(this.textRenderer, "★+", addCategoryX + 3, inputY + 6,
-            isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
-        ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
-                isCurrentInputInFavoritesCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
+        if (canUseQuickAddButtons) {
+            ctx.drawText(this.textRenderer, "+", addCategoryX + 7, inputY + 6,
+                isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
+            ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
+                    isCurrentInputInFavoritesCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
+        }
 
         if (!isSettingsView && themeHexInputField != null) {
             themeHexInputField.setVisible(false);
@@ -2223,6 +2254,7 @@ public class CommandPaletteScreen extends Screen {
         int settingsX = getSettingsButtonX();
         int addCategoryX = getAddToCategoryButtonX();
         int favoriteButtonX = getFavoriteButtonX();
+        boolean canUseQuickAddButtons = hasMeaningfulInput();
 
         if (categoryPickerOpen) {
             if (creatingCategoryInput && categoryInputField.mouseClicked(click, bl)) {
@@ -2457,7 +2489,8 @@ public class CommandPaletteScreen extends Screen {
             return true;
         }
 
-        if (click.x() >= addCategoryX && click.x() < addCategoryX + STAR_BUTTON_SIZE
+        if (canUseQuickAddButtons
+            && click.x() >= addCategoryX && click.x() < addCategoryX + STAR_BUTTON_SIZE
             && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
             if (categoryPickerOpen) {
                 closeCategoryPicker();
@@ -2467,7 +2500,8 @@ public class CommandPaletteScreen extends Screen {
             return true;
         }
 
-        if (click.x() >= favoriteButtonX && click.x() < favoriteButtonX + STAR_BUTTON_SIZE
+        if (canUseQuickAddButtons
+            && click.x() >= favoriteButtonX && click.x() < favoriteButtonX + STAR_BUTTON_SIZE
             && click.y() >= inputY && click.y() < inputY + STAR_BUTTON_SIZE) {
             toggleCurrentInputFavoriteCommand();
             return true;
