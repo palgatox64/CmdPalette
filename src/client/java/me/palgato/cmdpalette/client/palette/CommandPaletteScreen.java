@@ -28,7 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class CommandPaletteScreen extends Screen {
 
-    private static final int PALETTE_WIDTH = 350;
+    private static final int PALETTE_WIDTH = 520;
     private static final int INPUT_HEIGHT = 20;
     private static final int SUGGESTION_ITEM_HEIGHT = 18;
     private static final int MAX_VISIBLE = 12;
@@ -610,8 +610,48 @@ public class CommandPaletteScreen extends Screen {
         setView(viewMode);
     }
 
+    private void activateCategoryTab(int categoryIndex) {
+        if (categoryIndex < 0 || categoryIndex >= categories.size()) {
+            return;
+        }
+
+        if (isCategoryView() && selectedCategoryIndex == categoryIndex) {
+            setView(ViewMode.COMMANDS);
+            return;
+        }
+
+        selectedCategoryIndex = categoryIndex;
+        ensureCategoryTabVisible(selectedCategoryIndex);
+        setView(ViewMode.CATEGORY);
+    }
+
     private boolean isCategoryView() {
         return currentView == ViewMode.CATEGORY;
+    }
+
+    private boolean canDeleteSelectedCategory() {
+        if (!isCategoryView()) return false;
+        if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.size()) return false;
+        return !isFavoritesCategoryName(categories.get(selectedCategoryIndex).name());
+    }
+
+    private void deleteSelectedCategory() {
+        if (!canDeleteSelectedCategory()) return;
+
+        categories.remove(selectedCategoryIndex);
+        if (selectedCategoryIndex >= categories.size()) {
+            selectedCategoryIndex = categories.size() - 1;
+        }
+
+        ensureDefaultCategory();
+        if (selectedCategoryIndex < 0) {
+            selectedCategoryIndex = 0;
+        }
+
+        CommandCategoriesStore.save(categories);
+        clampCategoryScrollIndex();
+        ensureCategoryTabVisible(selectedCategoryIndex);
+        clampSelectionAndScroll();
     }
 
     private void removeCategoryCommandAt(int index) {
@@ -749,6 +789,7 @@ public class CommandPaletteScreen extends Screen {
         int favoriteButtonX = getFavoriteButtonX();
         boolean isHistoryView = currentView == ViewMode.HISTORY;
         boolean isCategoryView = isCategoryView();
+        boolean canDeleteCategory = canDeleteSelectedCategory();
         boolean canScrollLeft = canScrollCategoriesLeft();
         boolean canScrollRight = canScrollCategoriesRight();
 
@@ -787,7 +828,7 @@ public class CommandPaletteScreen extends Screen {
         if (hoverCreateCategory) createCategoryBg = COLOR_ACCENT;
         if (hoverScrollLeft && canScrollLeft) scrollLeftBg = COLOR_ACCENT;
         if (hoverScrollRight && canScrollRight) scrollRightBg = COLOR_ACCENT;
-        if (hoverAction) actionBg = COLOR_ACCENT;
+        if (hoverAction && (isHistoryView || canDeleteCategory)) actionBg = COLOR_ACCENT;
         if (hoverAddCategory) addCategoryBg = COLOR_ACCENT;
         if (hoverFavoriteButton) favoriteBg = COLOR_ACCENT;
 
@@ -847,7 +888,9 @@ public class CommandPaletteScreen extends Screen {
             categoryX += categoryWidth + TAB_GAP;
         }
 
-        ctx.drawText(this.textRenderer, isHistoryView ? "✕" : "⚙", actionX + 6, navbarY + 5, COLOR_STAR_OFF, false);
+        String actionLabel = isHistoryView ? "✕" : (isCategoryView ? "✕" : "⚙");
+        int actionColor = (isHistoryView || canDeleteCategory) ? COLOR_STAR_OFF : 0xFF555555;
+        ctx.drawText(this.textRenderer, actionLabel, actionX + 6, navbarY + 5, actionColor, false);
         ctx.drawText(this.textRenderer, "★+", addCategoryX + 3, inputY + 6,
             isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
@@ -870,11 +913,14 @@ public class CommandPaletteScreen extends Screen {
                     : Text.translatable("screen.cmdpalette.tooltip.add_to_favorites");
             ctx.drawTooltip(this.textRenderer, favoriteTooltip, mouseX, mouseY);
         } else if (hoverAction) {
-            ctx.drawTooltip(this.textRenderer,
-                Text.translatable(isHistoryView
-                            ? "screen.cmdpalette.tooltip.clear_history"
-                            : "screen.cmdpalette.tooltip.settings_soon"),
-                    mouseX, mouseY);
+            String tooltipKey = isHistoryView
+                    ? "screen.cmdpalette.tooltip.clear_history"
+                    : (isCategoryView
+                        ? (canDeleteCategory
+                            ? "screen.cmdpalette.tooltip.delete_category"
+                            : "screen.cmdpalette.tooltip.delete_category_disabled")
+                        : "screen.cmdpalette.tooltip.settings_soon");
+            ctx.drawTooltip(this.textRenderer, Text.translatable(tooltipKey), mouseX, mouseY);
         } else if (hoverCreateCategory) {
             ctx.drawTooltip(this.textRenderer,
                     Text.translatable("screen.cmdpalette.tooltip.create_category_input"),
@@ -893,7 +939,7 @@ public class CommandPaletteScreen extends Screen {
         List<String> entries = getVisibleEntries();
         int currentSize = entries.size();
         int visibleCount = Math.min(currentSize - scrollOffset, MAX_VISIBLE);
-        boolean hoverFavoriteRowStar = false;
+        boolean hoverCategoryRowRemove = false;
 
         for (int i = 0; i < visibleCount; i++) {
             int idx = i + scrollOffset;
@@ -917,19 +963,19 @@ public class CommandPaletteScreen extends Screen {
             renderSyntaxHighlighted(ctx, entry, paletteX + 12, sy + 4);
 
             if (isCategoryView) {
-                int starX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
-                int starY = sy + (SUGGESTION_ITEM_HEIGHT - STAR_ROW_SIZE) / 2;
-                boolean hoverRowStar = mouseX >= starX && mouseX < starX + STAR_ROW_SIZE
-                        && mouseY >= starY && mouseY < starY + STAR_ROW_SIZE;
-                if (hoverRowStar) {
-                    hoverFavoriteRowStar = true;
+                int removeX = paletteX + PALETTE_WIDTH - PADDING - STAR_ROW_SIZE;
+                int removeY = sy + (SUGGESTION_ITEM_HEIGHT - STAR_ROW_SIZE) / 2;
+                boolean hoverRowRemove = mouseX >= removeX && mouseX < removeX + STAR_ROW_SIZE
+                        && mouseY >= removeY && mouseY < removeY + STAR_ROW_SIZE;
+                if (hoverRowRemove) {
+                    hoverCategoryRowRemove = true;
                 }
-                int rowStarColor = hoverRowStar ? 0xFFFFF2A8 : COLOR_STAR;
-                ctx.drawText(this.textRenderer, "★", starX + 1, starY + 1, rowStarColor, false);
+                int rowRemoveColor = hoverRowRemove ? COLOR_STAR : COLOR_STAR_OFF;
+                ctx.drawText(this.textRenderer, "✕", removeX + 2, removeY + 1, rowRemoveColor, false);
             }
         }
 
-        if (hoverFavoriteRowStar) {
+        if (hoverCategoryRowRemove) {
             ctx.drawTooltip(this.textRenderer,
                     Text.translatable("screen.cmdpalette.tooltip.remove_row_category"),
                     mouseX, mouseY);
@@ -1119,8 +1165,7 @@ public class CommandPaletteScreen extends Screen {
         if (favoritesTabWidth > 0 && click.x() >= favoritesTabX && click.x() < favoritesTabX + favoritesTabWidth
                 && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT
                 && favoritesIndex >= 0 && favoritesIndex < categories.size()) {
-            selectedCategoryIndex = favoritesIndex;
-            toggleView(ViewMode.CATEGORY);
+            activateCategoryTab(favoritesIndex);
             return true;
         }
 
@@ -1154,9 +1199,7 @@ public class CommandPaletteScreen extends Screen {
 
             if (click.x() >= categoryX && click.x() < categoryX + categoryWidth
                     && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
-                selectedCategoryIndex = i;
-                ensureCategoryTabVisible(selectedCategoryIndex);
-                toggleView(ViewMode.CATEGORY);
+                activateCategoryTab(i);
                 return true;
             }
 
@@ -1167,6 +1210,10 @@ public class CommandPaletteScreen extends Screen {
                 && click.y() >= navbarY && click.y() < navbarY + NAVBAR_HEIGHT) {
             if (currentView == ViewMode.HISTORY) {
                 clearHistory();
+                return true;
+            }
+            if (canDeleteSelectedCategory()) {
+                deleteSelectedCategory();
                 return true;
             }
         }
@@ -1183,7 +1230,7 @@ public class CommandPaletteScreen extends Screen {
             return true;
         }
 
-        int removeIndex = getFavoriteRemoveIndexAt(click.x(), click.y());
+        int removeIndex = getCategoryCommandRemoveIndexAt(click.x(), click.y());
         if (removeIndex >= 0) {
             removeCategoryCommandAt(removeIndex);
             return true;
@@ -1245,7 +1292,7 @@ public class CommandPaletteScreen extends Screen {
         return -1;
     }
 
-    private int getFavoriteRemoveIndexAt(double mouseX, double mouseY) {
+    private int getCategoryCommandRemoveIndexAt(double mouseX, double mouseY) {
         if (!isCategoryView()) return -1;
 
         int paletteX = (this.width - PALETTE_WIDTH) / 2;

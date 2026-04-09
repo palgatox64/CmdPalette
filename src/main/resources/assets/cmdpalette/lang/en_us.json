@@ -7,10 +7,12 @@
   "screen.cmdpalette.tooltip.create_category_input": "Create a new category",
   "screen.cmdpalette.tooltip.history_tab": "Open command history",
   "screen.cmdpalette.tooltip.clear_history": "Clear command history",
+  "screen.cmdpalette.tooltip.delete_category": "Delete selected category",
+  "screen.cmdpalette.tooltip.delete_category_disabled": "Favorites cannot be deleted",
   "screen.cmdpalette.tooltip.add_to_selected_category": "Add current command to selected category",
   "screen.cmdpalette.tooltip.remove_from_selected_category": "Remove current command from selected category",
   "screen.cmdpalette.tooltip.add_to_favorites": "Add current command to favorites",
   "screen.cmdpalette.tooltip.remove_from_favorites": "Remove current command from favorites",
-  "screen.cmdpalette.tooltip.remove_row_category": "Remove this command from category",
+  "screen.cmdpalette.tooltip.remove_row_category": "Delete this command from category",
   "screen.cmdpalette.tooltip.settings_soon": "Settings (coming soon)"
 }
