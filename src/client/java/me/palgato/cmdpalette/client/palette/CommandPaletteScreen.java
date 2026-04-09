@@ -1213,8 +1213,10 @@ public class CommandPaletteScreen extends Screen {
         if (viewMode != ViewMode.SETTINGS && renamingTheme) {
             cancelThemeRename();
         }
-        if (viewMode != ViewMode.SETTINGS && themeHexInputField != null && themeHexInputField.isFocused()) {
-            applyThemeHexInput(true);
+        if (viewMode != ViewMode.SETTINGS && themeHexInputField != null) {
+            if (themeHexInputField.isFocused()) {
+                applyThemeHexInput(true);
+            }
             themeHexInputField.setFocused(false);
             themeHexInputField.setVisible(false);
         }
@@ -1518,6 +1520,11 @@ public class CommandPaletteScreen extends Screen {
             isCurrentInputInSelectedCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
         ctx.drawText(this.textRenderer, "★", favoriteButtonX + 6, inputY + 6,
                 isCurrentInputInFavoritesCategory() ? COLOR_STAR : COLOR_STAR_OFF, false);
+
+        if (!isSettingsView && themeHexInputField != null) {
+            themeHexInputField.setVisible(false);
+            themeHexInputField.setFocused(false);
+        }
 
         super.render(ctx, mouseX, mouseY, delta);
 
