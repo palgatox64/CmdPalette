@@ -203,11 +203,11 @@ jobs:
           fi
 
           if [ "$HTTP_CODE" = "404" ]; then
-            echo "::error::Modrinth project '${MODRINTH_PROJECT_ID}' was not found. Check repository variable MODRINTH_PROJECT_ID (use project slug or ID)."
-            exit 1
+            echo "::warning::Could not list versions for project '${MODRINTH_PROJECT_ID}' (404). Continuing to upload attempt for definitive API result."
+            echo "[]" > /tmp/modrinth_versions.json
           fi
 
-          if [ "$HTTP_CODE" -ge 400 ]; then
+          if [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" != "404" ]; then
             echo "::error::Modrinth API returned HTTP $HTTP_CODE while listing project versions."
             cat /tmp/modrinth_versions.json
             exit 1
@@ -240,8 +240,38 @@ jobs:
               file_parts: ["file"]
             }')
 
-          curl --fail-with-body \
+          UPLOAD_CODE=$(curl --silent --show-error \
+            --output /tmp/modrinth_upload.json \
+            --write-out "%{http_code}" \
             -H "Authorization: $MODRINTH_TOKEN" \
             -F "data=$JSON_DATA" \
             -F "file=@$ARTIFACT_PATH" \
-            https://api.modrinth.com/v2/version
+            https://api.modrinth.com/v2/version)
+
+          if [ "$UPLOAD_CODE" = "200" ] || [ "$UPLOAD_CODE" = "201" ]; then
+            echo "Modrinth publish succeeded (HTTP $UPLOAD_CODE)."
+            exit 0
+          fi
+
+          if [ "$UPLOAD_CODE" = "401" ]; then
+            echo "::error::Modrinth upload unauthorized (401). Token is invalid/expired, missing scope, or lacks permission for project '${MODRINTH_PROJECT_ID}'."
+            cat /tmp/modrinth_upload.json
+            exit 1
+          fi
+
+          if [ "$UPLOAD_CODE" = "404" ]; then
+            echo "::error::Modrinth upload project not found (404). Check MODRINTH_PROJECT_ID and ensure the token owner has access to this project/team."
+            cat /tmp/modrinth_upload.json
+            exit 1
+          fi
+
+          if [ "$UPLOAD_CODE" = "400" ]; then
+            if jq -e '.description | test("already exists|duplicate"; "i")' /tmp/modrinth_upload.json >/dev/null 2>&1; then
+              echo "Modrinth version appears to already exist. Skipping."
+              exit 0
+            fi
+          fi
+
+          echo "::error::Modrinth upload failed with HTTP $UPLOAD_CODE"
+          cat /tmp/modrinth_upload.json
+          exit 1
