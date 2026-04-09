@@ -110,6 +110,9 @@ public class CommandPaletteScreen extends Screen {
     private boolean renamingTheme = false;
     private ViewMode viewBeforeSettings = ViewMode.COMMANDS;
     private ViewMode currentView = ViewMode.COMMANDS;
+    private int commandHistoryBrowseIndex = -1;
+    private String commandHistoryBrowseDraft = "";
+    private boolean suppressCommandHistoryBrowseReset = false;
 
     private String cachedColorText = "";
     private int[] cachedColors = new int[0];
@@ -330,9 +333,55 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private void onInputChanged(String text) {
+        if (!suppressCommandHistoryBrowseReset) {
+            commandHistoryBrowseIndex = -1;
+            commandHistoryBrowseDraft = text == null ? "" : text;
+        }
         selectedIndex = -1;
         scrollOffset = 0;
         refreshSuggestions(text);
+    }
+
+    private boolean isMainInputActive() {
+        return inputField != null && inputField.isVisible() && inputField.isFocused();
+    }
+
+    private void setMainInputTextFromHistoryNavigation(String text) {
+        suppressCommandHistoryBrowseReset = true;
+        try {
+            inputField.setText(text == null ? "" : text);
+            inputField.setCursorToEnd(false);
+        } finally {
+            suppressCommandHistoryBrowseReset = false;
+        }
+    }
+
+    private void browseExecutedCommandHistory(int direction) {
+        if (inputField == null || history.isEmpty()) {
+            return;
+        }
+
+        if (commandHistoryBrowseIndex < -1) {
+            commandHistoryBrowseIndex = -1;
+        }
+
+        if (commandHistoryBrowseIndex == -1) {
+            commandHistoryBrowseDraft = inputField.getText();
+        }
+
+        int step = direction < 0 ? 1 : -1;
+        int nextIndex = commandHistoryBrowseIndex + step;
+        if (nextIndex < -1 || nextIndex >= history.size()) {
+            return;
+        }
+
+        commandHistoryBrowseIndex = nextIndex;
+        if (commandHistoryBrowseIndex == -1) {
+            setMainInputTextFromHistoryNavigation(commandHistoryBrowseDraft);
+            return;
+        }
+
+        setMainInputTextFromHistoryNavigation(history.get(commandHistoryBrowseIndex));
     }
 
     private List<String> getVisibleEntries() {
@@ -2164,10 +2213,18 @@ public class CommandPaletteScreen extends Screen {
                 return true;
             }
             case GLFW.GLFW_KEY_DOWN -> {
+                if (isMainInputActive()) {
+                    browseExecutedCommandHistory(1);
+                    return true;
+                }
                 moveSelection(1);
                 return true;
             }
             case GLFW.GLFW_KEY_UP -> {
+                if (isMainInputActive()) {
+                    browseExecutedCommandHistory(-1);
+                    return true;
+                }
                 moveSelection(-1);
                 return true;
             }
@@ -2610,6 +2667,8 @@ public class CommandPaletteScreen extends Screen {
         if (client.player == null) return;
 
         addToHistory(text);
+        commandHistoryBrowseIndex = -1;
+        commandHistoryBrowseDraft = "";
         String command = text.startsWith("/") ? text.substring(1) : text;
         client.player.networkHandler.sendChatCommand(command);
         close();
