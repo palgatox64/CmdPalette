@@ -26,3 +26,13 @@ remappedSrc/
 
 # Local agent instructions
 AGENTS.md
+
+# Local publishing notes
+MODRINTH_DESCRIPTION.md
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.token
+.secrets/
