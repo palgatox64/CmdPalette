@@ -190,6 +190,15 @@ jobs:
           VERSION_NUMBER="${RELEASE_TAG#v}+mc${MINECRAFT_VERSION}"
           CHANGELOG_CONTENT=$(cat CHANGELOG.MD)
 
+          EXISTING=$(curl --silent --show-error \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            "https://api.modrinth.com/v2/project/${MODRINTH_PROJECT_ID}/version")
+
+          if echo "$EXISTING" | jq -e --arg version_number "$VERSION_NUMBER" '.[] | select(.version_number == $version_number)' >/dev/null; then
+            echo "Modrinth version already exists ($VERSION_NUMBER). Skipping publish."
+            exit 0
+          fi
+
           JSON_DATA=$(jq -nc \
             --arg project_id "$MODRINTH_PROJECT_ID" \
             --arg version_number "$VERSION_NUMBER" \
@@ -206,6 +215,7 @@ jobs:
               loaders: ["fabric"],
               game_versions: [$game_version],
               featured: false,
+              dependencies: [],
               file_parts: ["file"]
             }')
 
