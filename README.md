@@ -4,6 +4,10 @@ CmdPalette is a fast, modern in-game command palette for Minecraft (Fabric) that
 
 It is fully client-side, highly customizable, and designed for players who use commands frequently in survival, creative, admin, and technical worlds.
 
+<a href="https://ko-fi.com/palgato" target="_blank" rel="noopener noreferrer">
+	<img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" />
+</a>
+
 ## Main Features
 
 - Instant command palette with keyboard shortcut access.
@@ -69,4 +73,4 @@ If you use commands often, CmdPalette gives you a cleaner and faster workflow: l
 
 ## License
 
-MIT License. See `LICENSE.txt`.
+This project is licensed under the MIT License. See the LICENSE file.
