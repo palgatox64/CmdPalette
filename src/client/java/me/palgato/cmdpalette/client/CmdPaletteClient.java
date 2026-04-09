@@ -18,7 +18,7 @@ public class CmdPaletteClient implements ClientModInitializer {
         KeyBinding openPalette = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.cmdpalette.open_palette",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
+            GLFW.GLFW_KEY_ENTER,
             cmdPaletteCategory
         ));
 

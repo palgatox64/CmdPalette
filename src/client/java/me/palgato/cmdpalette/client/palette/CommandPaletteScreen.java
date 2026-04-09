@@ -13,6 +13,7 @@ import net.minecraft.client.input.CharInput;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.client.network.ClientCommandSource;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.OrderedText;
 import net.minecraft.text.Style;
@@ -2217,6 +2218,16 @@ public class CommandPaletteScreen extends Screen {
     @Override
     public boolean keyPressed(KeyInput keyInput) {
         int keyCode = keyInput.key();
+
+        if (keyCode == GLFW.GLFW_KEY_X && this.client != null) {
+            var window = this.client.getWindow();
+            boolean ctrlHeld = InputUtil.isKeyPressed(window, GLFW.GLFW_KEY_LEFT_CONTROL)
+                    || InputUtil.isKeyPressed(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
+            if (ctrlHeld) {
+                close();
+                return true;
+            }
+        }
 
         if (creatingCategoryInput) {
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
