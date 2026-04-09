@@ -10,6 +10,8 @@ base {
     archivesName = project.archives_base_name
 }
 
+def releaseTag = "mc${project.minecraft_version}-fabric${project.loader_version}"
+
 loom {
     splitEnvironmentSourceSets()
 
@@ -84,6 +86,14 @@ jar {
     from("LICENSE") {
         rename { "${it}_${project.archives_base_name}"}
     }
+}
+
+tasks.named("remapJar") {
+    archiveFileName = "${project.archives_base_name}-${project.mod_version}-${releaseTag}.jar"
+}
+
+tasks.named("remapSourcesJar") {
+    archiveFileName = "${project.archives_base_name}-${project.mod_version}-${releaseTag}-sources.jar"
 }
 
 // configure the maven publication
