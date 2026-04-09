@@ -190,9 +190,30 @@ jobs:
           VERSION_NUMBER="${RELEASE_TAG#v}+mc${MINECRAFT_VERSION}"
           CHANGELOG_CONTENT=$(cat CHANGELOG.MD)
 
-          EXISTING=$(curl --silent --show-error \
+          PROJECT_VERSIONS_URL="https://api.modrinth.com/v2/project/${MODRINTH_PROJECT_ID}/version"
+          HTTP_CODE=$(curl --silent --show-error \
+            --output /tmp/modrinth_versions.json \
+            --write-out "%{http_code}" \
             -H "Authorization: $MODRINTH_TOKEN" \
-            "https://api.modrinth.com/v2/project/${MODRINTH_PROJECT_ID}/version")
+            "$PROJECT_VERSIONS_URL")
+
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "::error::Modrinth authentication failed (401). The token may be expired/invalid, missing 'Create versions', or it belongs to a user without upload permission on project '${MODRINTH_PROJECT_ID}'."
+            exit 1
+          fi
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "::error::Modrinth project '${MODRINTH_PROJECT_ID}' was not found. Check repository variable MODRINTH_PROJECT_ID (use project slug or ID)."
+            exit 1
+          fi
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Modrinth API returned HTTP $HTTP_CODE while listing project versions."
+            cat /tmp/modrinth_versions.json
+            exit 1
+          fi
+
+          EXISTING=$(cat /tmp/modrinth_versions.json)
 
           if echo "$EXISTING" | jq -e --arg version_number "$VERSION_NUMBER" '.[] | select(.version_number == $version_number)' >/dev/null; then
             echo "Modrinth version already exists ($VERSION_NUMBER). Skipping publish."
