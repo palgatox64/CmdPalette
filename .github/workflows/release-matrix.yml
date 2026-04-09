@@ -132,6 +132,10 @@ jobs:
           path.write_text('\n'.join(out) + '\n', encoding='utf-8')
           PY
 
+      - name: Ensure Gradle wrapper is executable
+        shell: bash
+        run: chmod +x ./gradlew
+
       - name: Build
         shell: bash
         run: ./gradlew build
