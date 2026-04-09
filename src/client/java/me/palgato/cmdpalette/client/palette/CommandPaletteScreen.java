@@ -743,6 +743,18 @@ public class CommandPaletteScreen extends Screen {
         return Math.max(minWidth, maxLabelWidth + 12);
     }
 
+    private int getScopeModeSwitchWidth() {
+        int minWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
+        if (this.textRenderer == null) {
+            return minWidth;
+        }
+
+        int globalWidth = this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope.global").getString());
+        int serverWidth = this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope.server").getString());
+        int maxLabelWidth = Math.max(globalWidth, serverWidth);
+        return Math.max(minWidth, maxLabelWidth + 12);
+    }
+
     private void persistSettings() {
         maxVisibleItems = getConfiguredMaxVisibleItems();
         CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix, commandDataScopeMode));
@@ -2005,9 +2017,10 @@ public class CommandPaletteScreen extends Screen {
         int incX = getSettingsIncreaseX();
         int switchX = getSettingsSlashSwitchX();
         int switchWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
-        int scopeSwitchX = switchX;
+        int scopeSwitchWidth = getScopeModeSwitchWidth();
+        int scopeSwitchX = controlsRight - scopeSwitchWidth;
 
-        boolean hoverScopeSwitch = mouseX >= scopeSwitchX && mouseX < scopeSwitchX + switchWidth
+        boolean hoverScopeSwitch = mouseX >= scopeSwitchX && mouseX < scopeSwitchX + scopeSwitchWidth
             && mouseY >= row0Y && mouseY < row0Y + NAVBAR_HEIGHT;
         boolean hoverDec = mouseX >= decX && mouseX < decX + SETTINGS_BUTTON_WIDTH
                 && mouseY >= row1Y && mouseY < row1Y + NAVBAR_HEIGHT;
@@ -2028,11 +2041,11 @@ public class CommandPaletteScreen extends Screen {
         ctx.drawText(this.textRenderer,
             Text.translatable("screen.cmdpalette.settings.scope").getString(),
             labelX, row0Y + 4, 0xFFC5C8C6, false);
-        ctx.fill(scopeSwitchX, row0Y, scopeSwitchX + switchWidth, row0Y + NAVBAR_HEIGHT, scopeSwitchBg);
+        ctx.fill(scopeSwitchX, row0Y, scopeSwitchX + scopeSwitchWidth, row0Y + NAVBAR_HEIGHT, scopeSwitchBg);
         String scopeText = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER
             ? Text.translatable("screen.cmdpalette.settings.scope.server").getString()
             : Text.translatable("screen.cmdpalette.settings.scope.global").getString();
-        int scopeTextX = scopeSwitchX + (switchWidth - this.textRenderer.getWidth(scopeText)) / 2;
+        int scopeTextX = scopeSwitchX + (scopeSwitchWidth - this.textRenderer.getWidth(scopeText)) / 2;
         ctx.drawText(this.textRenderer, scopeText, scopeTextX, row0Y + 5,
             commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER ? COLOR_STAR : COLOR_STAR_OFF, false);
 
@@ -2507,6 +2520,8 @@ public class CommandPaletteScreen extends Screen {
             int themePrevX = controlsRight - 44;
             int themeNextX = themePrevX + 24;
             int switchWidth = SETTINGS_BUTTON_WIDTH * 2 + 4;
+            int scopeSwitchWidth = getScopeModeSwitchWidth();
+            int scopeSwitchX = controlsRight - scopeSwitchWidth;
 
             int actionWidth = getThemeActionButtonWidth();
             int actionGap = 4;
@@ -2547,7 +2562,7 @@ public class CommandPaletteScreen extends Screen {
                 return true;
             }
 
-            if (click.x() >= settingsSwitchX && click.x() < settingsSwitchX + switchWidth
+            if (click.x() >= scopeSwitchX && click.x() < scopeSwitchX + scopeSwitchWidth
                     && click.y() >= row0Y && click.y() < row0Y + NAVBAR_HEIGHT) {
                 toggleCommandDataScopeMode();
                 return true;
