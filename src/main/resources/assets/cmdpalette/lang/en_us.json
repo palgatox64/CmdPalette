@@ -1,5 +1,7 @@
 {
   "key.cmdpalette.open_palette": "Open Command Palette",
+  "key.cmdpalette.open_palette_modifier": "Command Palette Modifier",
+  "key.category.cmdpalette.keybinds": "CmdPalette",
   "category.cmdpalette": "CmdPalette",
   "screen.cmdpalette.command_palette": "Command Palette",
   "screen.cmdpalette.category.favorites": "Favorites",
