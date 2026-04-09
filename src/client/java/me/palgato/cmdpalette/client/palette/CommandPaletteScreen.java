@@ -669,6 +669,30 @@ public class CommandPaletteScreen extends Screen {
         return getSettingsLabelX() + maxLabelWidth + labelPadding;
     }
 
+    private String[] getThemeActionLabels() {
+        return new String[] {
+                Text.translatable("screen.cmdpalette.theme.action.new").getString(),
+                Text.translatable("screen.cmdpalette.theme.action.del").getString(),
+                Text.translatable("screen.cmdpalette.theme.action.file").getString(),
+                Text.translatable("screen.cmdpalette.theme.action.ren").getString()
+        };
+    }
+
+    private int getThemeActionButtonWidth() {
+        int minWidth = 40;
+        if (this.textRenderer == null) {
+            return minWidth;
+        }
+
+        int maxLabelWidth = 0;
+        String[] labels = getThemeActionLabels();
+        for (String label : labels) {
+            maxLabelWidth = Math.max(maxLabelWidth, this.textRenderer.getWidth(label));
+        }
+
+        return Math.max(minWidth, maxLabelWidth + 12);
+    }
+
     private void persistSettings() {
         maxVisibleItems = getConfiguredMaxVisibleItems();
         CommandPaletteSettingsStore.save(new CommandPaletteSettingsStore.Settings(maxVisibleItems, hideSlashPrefix));
@@ -1904,16 +1928,11 @@ public class CommandPaletteScreen extends Screen {
             ctx.drawText(this.textRenderer, themeName, themeNameX, row3Y + 4, COLOR_STAR, false);
         }
 
-        int actionWidth = 40;
+        int actionWidth = getThemeActionButtonWidth();
         int actionGap = 4;
         int actionsCount = 4;
         int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
-        String[] actionLabels = {
-            Text.translatable("screen.cmdpalette.theme.action.new").getString(),
-            Text.translatable("screen.cmdpalette.theme.action.del").getString(),
-            Text.translatable("screen.cmdpalette.theme.action.file").getString(),
-            Text.translatable("screen.cmdpalette.theme.action.ren").getString()
-        };
+        String[] actionLabels = getThemeActionLabels();
         for (int i = 0; i < actionLabels.length; i++) {
             int x = actionsStartX + i * (actionWidth + actionGap);
             boolean disabled = (i == 1 || i == 3) && !editable;
@@ -2311,7 +2330,7 @@ public class CommandPaletteScreen extends Screen {
             int themePrevX = controlsRight - 44;
             int themeNextX = themePrevX + 24;
 
-            int actionWidth = 40;
+            int actionWidth = getThemeActionButtonWidth();
             int actionGap = 4;
             int actionsCount = 4;
             int actionsStartX = controlsRight - (actionWidth * actionsCount + actionGap * (actionsCount - 1));
