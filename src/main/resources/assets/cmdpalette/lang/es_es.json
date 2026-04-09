@@ -23,8 +23,6 @@
   "screen.cmdpalette.settings.aspect": "Aspecto",
   "screen.cmdpalette.theme.action.new": "Nuevo",
   "screen.cmdpalette.theme.action.del": "Borrar",
-  "screen.cmdpalette.theme.action.exp": "Exp",
-  "screen.cmdpalette.theme.action.imp": "Imp",
   "screen.cmdpalette.theme.action.file": "Archivo",
   "screen.cmdpalette.theme.action.ren": "Renombrar",
   "screen.cmdpalette.theme.aspect.overlay": "Superposición",
