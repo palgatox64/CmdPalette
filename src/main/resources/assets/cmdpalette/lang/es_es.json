@@ -22,6 +22,7 @@
   "screen.cmdpalette.settings.scope": "Modo",
   "screen.cmdpalette.settings.scope.global": "Global",
   "screen.cmdpalette.settings.scope.server": "Por server",
+  "screen.cmdpalette.settings.scope.world": "Por mundo",
   "screen.cmdpalette.settings.max_visible": "Máximo de items visibles",
   "screen.cmdpalette.settings.hide_slash": "Ocultar e ignorar prefijo /",
   "screen.cmdpalette.settings.theme": "Tema",

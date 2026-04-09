@@ -22,6 +22,7 @@
   "screen.cmdpalette.settings.scope": "Mode",
   "screen.cmdpalette.settings.scope.global": "Global",
   "screen.cmdpalette.settings.scope.server": "Per server",
+  "screen.cmdpalette.settings.scope.world": "Per world",
   "screen.cmdpalette.settings.max_visible": "Max visible items",
   "screen.cmdpalette.settings.hide_slash": "Hide and ignore / prefix",
   "screen.cmdpalette.settings.theme": "Theme",

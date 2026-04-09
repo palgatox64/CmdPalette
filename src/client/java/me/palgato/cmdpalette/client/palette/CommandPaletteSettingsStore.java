@@ -19,7 +19,8 @@ public final class CommandPaletteSettingsStore {
 
     public enum ScopeMode {
         GLOBAL,
-        PER_SERVER
+        PER_SERVER,
+        PER_WORLD
     }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();

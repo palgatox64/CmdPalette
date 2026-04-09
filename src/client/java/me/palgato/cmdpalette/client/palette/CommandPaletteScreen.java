@@ -20,6 +20,7 @@ import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextColor;
 import net.minecraft.util.Util;
+import net.minecraft.util.WorldSavePath;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -751,7 +752,8 @@ public class CommandPaletteScreen extends Screen {
 
         int globalWidth = this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope.global").getString());
         int serverWidth = this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope.server").getString());
-        int maxLabelWidth = Math.max(globalWidth, serverWidth);
+        int worldWidth = this.textRenderer.getWidth(Text.translatable("screen.cmdpalette.settings.scope.world").getString());
+        int maxLabelWidth = Math.max(globalWidth, Math.max(serverWidth, worldWidth));
         return Math.max(minWidth, maxLabelWidth + 12);
     }
 
@@ -761,10 +763,11 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private String getActiveCommandDataScopeKey() {
-        if (commandDataScopeMode != CommandPaletteSettingsStore.ScopeMode.PER_SERVER) {
-            return null;
-        }
-        return resolveCurrentServerScopeKey();
+        return switch (commandDataScopeMode) {
+            case PER_SERVER -> resolveCurrentServerScopeKey();
+            case PER_WORLD -> resolveCurrentWorldScopeKey();
+            default -> null;
+        };
     }
 
     private String resolveCurrentServerScopeKey() {
@@ -779,6 +782,28 @@ public class CommandPaletteScreen extends Screen {
             }
         }
         return "local";
+    }
+
+    private String resolveCurrentWorldScopeKey() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) {
+            return "local";
+        }
+
+        if (client.getServer() != null) {
+            Path levelDatPath = client.getServer().getSavePath(WorldSavePath.LEVEL_DAT);
+            if (levelDatPath != null) {
+                Path worldFolder = levelDatPath.getParent();
+                if (worldFolder != null && worldFolder.getFileName() != null) {
+                    String worldName = worldFolder.getFileName().toString().trim().toLowerCase();
+                    if (!worldName.isEmpty()) {
+                        return "world-" + worldName;
+                    }
+                }
+            }
+        }
+
+        return resolveCurrentServerScopeKey();
     }
 
     private void saveCategoriesScoped() {
@@ -803,9 +828,11 @@ public class CommandPaletteScreen extends Screen {
     }
 
     private void toggleCommandDataScopeMode() {
-        commandDataScopeMode = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.GLOBAL
-                ? CommandPaletteSettingsStore.ScopeMode.PER_SERVER
-                : CommandPaletteSettingsStore.ScopeMode.GLOBAL;
+        commandDataScopeMode = switch (commandDataScopeMode) {
+            case GLOBAL -> CommandPaletteSettingsStore.ScopeMode.PER_SERVER;
+            case PER_SERVER -> CommandPaletteSettingsStore.ScopeMode.PER_WORLD;
+            case PER_WORLD -> CommandPaletteSettingsStore.ScopeMode.GLOBAL;
+        };
         reloadScopedCommandData();
         applySlashPreferenceToStoredCommands();
         if (inputField != null) {
@@ -2029,9 +2056,9 @@ public class CommandPaletteScreen extends Screen {
         boolean hoverSwitch = mouseX >= switchX && mouseX < switchX + switchWidth
                 && mouseY >= row2Y && mouseY < row2Y + NAVBAR_HEIGHT;
 
-        int scopeSwitchBg = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER
-            ? COLOR_CATEGORY_ACTIVE
-            : COLOR_BUTTON_BG;
+        int scopeSwitchBg = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.GLOBAL
+            ? COLOR_BUTTON_BG
+            : COLOR_CATEGORY_ACTIVE;
         if (hoverScopeSwitch) scopeSwitchBg = COLOR_ACCENT;
         int decBg = hoverDec ? COLOR_ACCENT : COLOR_BUTTON_BG;
         int incBg = hoverInc ? COLOR_ACCENT : COLOR_BUTTON_BG;
@@ -2044,10 +2071,12 @@ public class CommandPaletteScreen extends Screen {
         ctx.fill(scopeSwitchX, row0Y, scopeSwitchX + scopeSwitchWidth, row0Y + NAVBAR_HEIGHT, scopeSwitchBg);
         String scopeText = commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER
             ? Text.translatable("screen.cmdpalette.settings.scope.server").getString()
-            : Text.translatable("screen.cmdpalette.settings.scope.global").getString();
+            : (commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_WORLD
+                ? Text.translatable("screen.cmdpalette.settings.scope.world").getString()
+                : Text.translatable("screen.cmdpalette.settings.scope.global").getString());
         int scopeTextX = scopeSwitchX + (scopeSwitchWidth - this.textRenderer.getWidth(scopeText)) / 2;
         ctx.drawText(this.textRenderer, scopeText, scopeTextX, row0Y + 5,
-            commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.PER_SERVER ? COLOR_STAR : COLOR_STAR_OFF, false);
+            commandDataScopeMode == CommandPaletteSettingsStore.ScopeMode.GLOBAL ? COLOR_STAR_OFF : COLOR_STAR, false);
 
         ctx.drawText(this.textRenderer,
                 Text.translatable("screen.cmdpalette.settings.max_visible").getString(),
