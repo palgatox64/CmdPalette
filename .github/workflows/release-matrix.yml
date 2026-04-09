@@ -199,6 +199,11 @@ jobs:
             exit 0
           fi
 
+          if echo "$EXISTING" | jq -e --arg game_version "$MINECRAFT_VERSION" '.[] | select((.game_versions // []) | index($game_version))' >/dev/null; then
+            echo "A Modrinth entry for Minecraft ${MINECRAFT_VERSION} already exists. Skipping publish to avoid duplicate Minecraft versions."
+            exit 0
+          fi
+
           JSON_DATA=$(jq -nc \
             --arg project_id "$MODRINTH_PROJECT_ID" \
             --arg version_number "$VERSION_NUMBER" \
